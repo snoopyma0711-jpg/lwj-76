@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useReducer, ReactNode } from 'react'
 import type { AppState, AppAction, Order, StoreStock, StockRecord, Product } from '../types'
 import { mockStores, mockProducts, mockOrders, mockStocks, mockStockRecords } from '../data/mockData'
+import { orderStatusMap } from '../utils/constants'
 
 const initialState: AppState = {
   stores: mockStores,
@@ -17,6 +18,21 @@ const initialState: AppState = {
 
 function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
+    case 'SET_ORDERS': {
+      return { ...state, orders: action.payload }
+    }
+    case 'SET_STOCKS': {
+      return { ...state, stocks: action.payload }
+    }
+    case 'SET_STORES': {
+      return { ...state, stores: action.payload }
+    }
+    case 'SET_PRODUCTS': {
+      return { ...state, products: action.payload }
+    }
+    case 'SET_STOCK_RECORDS': {
+      return { ...state, stockRecords: action.payload }
+    }
     case 'UPDATE_ORDER': {
       return {
         ...state,
@@ -139,6 +155,25 @@ interface AppContextValue {
     content: string
     operator: string
   }) => void
+  createOrder: (params: {
+    storeId: string
+    items: { productId: string; quantity: number }[]
+    contactName: string
+    contactPhone: string
+    scheduledPickupTime: string
+    remark?: string
+  }) => { success: boolean; message: string; order?: Order }
+  updateOrderInfo: (params: {
+    order: Order
+    contactName?: string
+    contactPhone?: string
+    scheduledPickupTime?: string
+    remark?: string
+  }) => { success: boolean; message: string }
+  cancelOrder: (params: {
+    order: Order
+    reason: string
+  }) => { success: boolean; message: string }
   getProductStocks: (productId: string) => (StoreStock & { storeName: string })[]
   getWarningProducts: () => (Product & {
     storeWarnings: { storeId: string; storeName: string; quantity: number; threshold: number }[]
@@ -481,6 +516,173 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
   }
 
+  const generateOrderNo = () => {
+    const d = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const seq = String(state.orders.length + 1).padStart(4, '0')
+    return `TP${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${seq}`
+  }
+
+  const createOrder: AppContextValue['createOrder'] = ({
+    storeId,
+    items,
+    contactName,
+    contactPhone,
+    scheduledPickupTime,
+    remark,
+  }) => {
+    if (!storeId) return { success: false, message: '请选择门店' }
+    if (!items || items.length === 0) return { success: false, message: '请添加至少一个商品' }
+    if (!contactName.trim()) return { success: false, message: '请输入联系人姓名' }
+    if (contactName.length > 20) return { success: false, message: '联系人姓名过长（最多20字）' }
+    if (!contactPhone.trim()) return { success: false, message: '请输入联系电话' }
+    if (!/^1[3-9]\d{9}$/.test(contactPhone.trim())) return { success: false, message: '请输入正确的手机号' }
+    if (!scheduledPickupTime) return { success: false, message: '请选择约定自提时间' }
+    if (new Date(scheduledPickupTime).getTime() < Date.now()) {
+      return { success: false, message: '约定自提时间不能早于当前时间' }
+    }
+
+    const store = state.stores.find((s) => s.id === storeId)
+    if (!store) return { success: false, message: '门店不存在' }
+
+    const orderItems: Order['items'] = []
+    let totalAmount = 0
+    for (const it of items) {
+      if (!it.quantity || it.quantity <= 0) {
+        return { success: false, message: '商品数量必须大于0' }
+      }
+      const product = state.products.find((p) => p.id === it.productId)
+      if (!product) return { success: false, message: '商品不存在' }
+      const stock = state.stocks.find((s) => s.productId === it.productId && s.storeId === storeId)
+      const availableQty = stock ? stock.quantity - stock.lockedQuantity : 0
+      if (it.quantity > availableQty) {
+        return { success: false, message: `商品「${product.name}」库存不足，当前可用${availableQty}件` }
+      }
+      orderItems.push({
+        productId: product.id,
+        productName: product.name,
+        sku: product.sku,
+        quantity: it.quantity,
+        unitPrice: product.price,
+      })
+      totalAmount += product.price * it.quantity
+    }
+
+    const time = nowStr()
+    const order: Order = {
+      id: `order-${Date.now()}`,
+      orderNo: generateOrderNo(),
+      createdAt: time,
+      storeId,
+      storeName: store.name,
+      items: orderItems,
+      totalAmount: Math.round(totalAmount * 100) / 100,
+      contactName: contactName.trim(),
+      contactPhone: contactPhone.trim(),
+      scheduledPickupTime,
+      status: 'pending',
+      remark: remark?.trim() || undefined,
+      contactRecords: [],
+      statusLogs: [
+        {
+          id: `log-${Date.now()}-1`,
+          status: 'pending',
+          time,
+          operator: state.currentUser.name,
+          remark: '订单已创建，待确认',
+        },
+      ],
+      operator: state.currentUser.name,
+    }
+
+    dispatch({ type: 'ADD_ORDER', payload: order })
+    return { success: true, message: '订单创建成功', order }
+  }
+
+  const updateOrderInfo: AppContextValue['updateOrderInfo'] = ({
+    order,
+    contactName,
+    contactPhone,
+    scheduledPickupTime,
+    remark,
+  }) => {
+    if (['picked_up', 'cancelled', 'failed'].includes(order.status)) {
+      return { success: false, message: `订单状态为「${orderStatusMap[order.status].label}」，无法修改` }
+    }
+    const changes: Partial<Order> = {}
+    if (contactName !== undefined) {
+      if (!contactName.trim()) return { success: false, message: '联系人姓名不能为空' }
+      if (contactName.length > 20) return { success: false, message: '联系人姓名过长（最多20字）' }
+      changes.contactName = contactName.trim()
+    }
+    if (contactPhone !== undefined) {
+      if (!contactPhone.trim()) return { success: false, message: '联系电话不能为空' }
+      if (!/^1[3-9]\d{9}$/.test(contactPhone.trim())) return { success: false, message: '请输入正确的手机号' }
+      changes.contactPhone = contactPhone.trim()
+    }
+    if (scheduledPickupTime !== undefined) {
+      if (!scheduledPickupTime) return { success: false, message: '约定自提时间不能为空' }
+      if (new Date(scheduledPickupTime).getTime() < Date.now()) {
+        return { success: false, message: '约定自提时间不能早于当前时间' }
+      }
+      changes.scheduledPickupTime = scheduledPickupTime
+    }
+    if (remark !== undefined) {
+      if (remark.length > 500) return { success: false, message: '备注不能超过500字' }
+      changes.remark = remark.trim() || undefined
+    }
+    if (Object.keys(changes).length === 0) {
+      return { success: false, message: '没有需要保存的修改' }
+    }
+    const time = nowStr()
+    const updatedOrder: Order = {
+      ...order,
+      ...changes,
+      statusLogs: [
+        ...order.statusLogs,
+        {
+          id: `log-${Date.now()}`,
+          status: order.status,
+          time,
+          operator: state.currentUser.name,
+          remark: `订单信息已修改${Object.keys(changes).map((k) => ({
+            contactName: '（联系人）',
+            contactPhone: '（联系电话）',
+            scheduledPickupTime: '（自提时间）',
+            remark: '（备注）',
+          } as Record<string, string>)[k]).join('')}`,
+        },
+      ],
+    }
+    dispatch({ type: 'UPDATE_ORDER', payload: updatedOrder })
+    return { success: true, message: '订单信息已更新' }
+  }
+
+  const cancelOrder: AppContextValue['cancelOrder'] = ({ order, reason }) => {
+    if (['picked_up', 'cancelled', 'failed'].includes(order.status)) {
+      return { success: false, message: `订单状态为「${orderStatusMap[order.status].label}」，无法取消` }
+    }
+    if (!reason.trim()) return { success: false, message: '请填写取消原因' }
+    if (reason.length > 500) return { success: false, message: '取消原因不能超过500字' }
+    const time = nowStr()
+    const updatedOrder: Order = {
+      ...order,
+      status: 'cancelled',
+      statusLogs: [
+        ...order.statusLogs,
+        {
+          id: `log-${Date.now()}`,
+          status: 'cancelled',
+          time,
+          operator: state.currentUser.name,
+          remark: reason.trim(),
+        },
+      ],
+    }
+    dispatch({ type: 'UPDATE_ORDER', payload: updatedOrder })
+    return { success: true, message: '订单已取消' }
+  }
+
   return (
     <AppContext.Provider
       value={{
@@ -493,6 +695,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         processStockAdjust,
         updateOrderRemark,
         addContactRecord,
+        createOrder,
+        updateOrderInfo,
+        cancelOrder,
         getProductStocks,
         getWarningProducts,
         getOrdersAffectedByStock,

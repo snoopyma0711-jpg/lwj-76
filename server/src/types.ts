@@ -102,30 +102,16 @@ export interface StockRecord {
   remark?: string
 }
 
-export interface AppState {
+export interface Database {
   stores: Store[]
   products: Product[]
   orders: Order[]
   stocks: StoreStock[]
   stockRecords: StockRecord[]
-  currentUser: {
-    name: string
-    role: 'manager' | 'staff'
-    storeId: string
-  }
 }
 
-export type AppAction =
-  | { type: 'SET_ORDERS'; payload: Order[] }
-  | { type: 'SET_STOCKS'; payload: StoreStock[] }
-  | { type: 'SET_STORES'; payload: Store[] }
-  | { type: 'SET_PRODUCTS'; payload: Product[] }
-  | { type: 'SET_STOCK_RECORDS'; payload: StockRecord[] }
-  | { type: 'UPDATE_ORDER'; payload: Order }
-  | { type: 'ADD_ORDER'; payload: Order }
-  | { type: 'ADD_STATUS_LOG'; payload: { orderId: string; log: OrderStatusLog } }
-  | { type: 'ADD_CONTACT_RECORD'; payload: { orderId: string; record: ContactRecord } }
-  | { type: 'UPDATE_STOCK'; payload: StoreStock }
-  | { type: 'ADD_STOCK_RECORD'; payload: StockRecord }
-  | { type: 'UPDATE_PRODUCT'; payload: Product }
-  | { type: 'UPDATE_STORE'; payload: Store }
+export interface ApiResponse<T = any> {
+  success: boolean
+  message: string
+  data?: T
+}

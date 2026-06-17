@@ -1,6 +1,7 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
+import { api } from '../services/api'
 import { Card, Button, Modal, Input, Select, Textarea, EmptyState, Badge, Tag } from '../components/ui'
 import {
   Search,
@@ -24,6 +25,11 @@ import {
   FileText,
   History,
   X,
+  Plus,
+  Trash2,
+  ShoppingCart,
+  Edit3,
+  Ban,
 } from 'lucide-react'
 import type { Order, OrderStatus } from '../types'
 import {
@@ -49,7 +55,7 @@ const statusFilters: { value: OrderStatus | '' | 'overdue'; label: string; color
 ]
 
 export default function Orders() {
-  const { state, updateOrderRemark, addContactRecord, processOrderDelay, processOrderFailed } = useApp()
+  const { state, dispatch, updateOrderRemark, addContactRecord, processOrderDelay, processOrderFailed } = useApp()
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
 
@@ -68,6 +74,9 @@ export default function Orders() {
   const [showContactModal, setShowContactModal] = useState(false)
   const [showDelayModal, setShowDelayModal] = useState(false)
   const [showFailedModal, setShowFailedModal] = useState(false)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [showCancelModal, setShowCancelModal] = useState(false)
 
   const [remarkInput, setRemarkInput] = useState('')
   const [contactType, setContactType] = useState<'phone' | 'sms' | 'wechat' | 'onsite'>('phone')
@@ -81,6 +90,33 @@ export default function Orders() {
   const [remarkError, setRemarkError] = useState('')
   const [contactError, setContactError] = useState('')
   const [delayError, setDelayError] = useState('')
+
+  const [newStoreId, setNewStoreId] = useState('')
+  const [newItems, setNewItems] = useState<{ productId: string; quantity: number }[]>([])
+  const [newContactName, setNewContactName] = useState('')
+  const [newContactPhone, setNewContactPhone] = useState('')
+  const [newScheduledDate, setNewScheduledDate] = useState('')
+  const [newScheduledTime, setNewScheduledTime] = useState('')
+  const [newRemark, setNewRemark] = useState('')
+  const [newErrors, setNewErrors] = useState<Record<string, string>>({})
+
+  const [editContactName, setEditContactName] = useState('')
+  const [editContactPhone, setEditContactPhone] = useState('')
+  const [editScheduledDate, setEditScheduledDate] = useState('')
+  const [editScheduledTime, setEditScheduledTime] = useState('')
+  const [editRemark, setEditRemark] = useState('')
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({})
+
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelError, setCancelError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const reloadOrders = useCallback(async () => {
+    const res = await api.getOrders()
+    if (res.success && res.data) {
+      dispatch({ type: 'SET_ORDERS', payload: res.data })
+    }
+  }, [dispatch])
 
   useEffect(() => {
     if (!toast) return
@@ -257,6 +293,160 @@ export default function Orders() {
     setEndDate('')
   }
 
+  const openCreate = () => {
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const d = new Date()
+    d.setHours(d.getHours() + 2)
+    setNewStoreId(state.currentUser.storeId || '')
+    setNewItems([])
+    setNewContactName('')
+    setNewContactPhone('')
+    setNewScheduledDate(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`)
+    setNewScheduledTime(`${pad(d.getHours())}:${pad(d.getMinutes())}`)
+    setNewRemark('')
+    setNewErrors({})
+    setShowCreateModal(true)
+  }
+
+  const addNewItem = () => {
+    setNewItems([...newItems, { productId: '', quantity: 1 }])
+  }
+
+  const updateNewItem = (idx: number, field: 'productId' | 'quantity', value: string | number) => {
+    const arr = newItems.slice()
+    if (field === 'productId') {
+      arr[idx].productId = value as string
+    } else {
+      arr[idx].quantity = Math.max(1, value as number)
+    }
+    setNewItems(arr)
+  }
+
+  const removeNewItem = (idx: number) => {
+    setNewItems(newItems.filter((_, i) => i !== idx))
+  }
+
+  const getNewItemStock = (productId: string, sId: string) => {
+    if (!productId || !sId) return 0
+    const stock = state.stocks.find((s) => s.productId === productId && s.storeId === sId)
+    return stock ? stock.quantity - stock.lockedQuantity : 0
+  }
+
+  const validateCreate = () => {
+    const e: Record<string, string> = {}
+    if (!newStoreId) e.storeId = '请选择门店'
+    if (newItems.length === 0) e.items = '请添加至少一个商品'
+    newItems.forEach((it, idx) => {
+      if (!it.productId) e[`item-${idx}-pid`] = '请选择商品'
+      if (!it.quantity || it.quantity <= 0) e[`item-${idx}-qty`] = '数量须大于0'
+    })
+    if (!newContactName.trim()) e.contactName = '请输入联系人'
+    if (newContactName.length > 20) e.contactName = '联系人姓名过长（最多20字）'
+    if (!newContactPhone.trim()) e.contactPhone = '请输入联系电话'
+    if (!/^1[3-9]\d{9}$/.test(newContactPhone.trim()) && newContactPhone.trim()) e.contactPhone = '请输入正确的手机号'
+    if (!newScheduledDate || !newScheduledTime) e.scheduled = '请选择约定自提时间'
+    setNewErrors(e)
+    return Object.keys(e).length === 0
+  }
+
+  const saveCreate = async () => {
+    if (!validateCreate() || submitting) return
+    setSubmitting(true)
+    try {
+      const res = await api.createOrder({
+        storeId: newStoreId,
+        items: newItems,
+        contactName: newContactName,
+        contactPhone: newContactPhone,
+        scheduledPickupTime: `${newScheduledDate} ${newScheduledTime}:00`,
+        remark: newRemark,
+      })
+      if (res.success) {
+        setShowCreateModal(false)
+        setToast({ message: res.message, type: 'success' })
+        await reloadOrders()
+      } else {
+        setToast({ message: res.message, type: 'error' })
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const openEdit = (order: Order) => {
+    setSelectedOrder(order)
+    setEditContactName(order.contactName)
+    setEditContactPhone(order.contactPhone)
+    const dt = order.scheduledPickupTime
+    setEditScheduledDate(dt.slice(0, 10))
+    setEditScheduledTime(dt.slice(11, 16))
+    setEditRemark(order.remark || '')
+    setEditErrors({})
+    setShowEditModal(true)
+  }
+
+  const saveEdit = async () => {
+    if (!selectedOrder || submitting) return
+    const e: Record<string, string> = {}
+    if (!editContactName.trim()) e.contactName = '联系人姓名不能为空'
+    if (editContactName.length > 20) e.contactName = '联系人姓名过长（最多20字）'
+    if (!editContactPhone.trim()) e.contactPhone = '联系电话不能为空'
+    if (!/^1[3-9]\d{9}$/.test(editContactPhone.trim()) && editContactPhone.trim()) e.contactPhone = '请输入正确的手机号'
+    if (!editScheduledDate || !editScheduledTime) e.scheduled = '约定自提时间不能为空'
+    setEditErrors(e)
+    if (Object.keys(e).length > 0) return
+    setSubmitting(true)
+    try {
+      const res = await api.updateOrderInfo(selectedOrder.id, {
+        contactName: editContactName,
+        contactPhone: editContactPhone,
+        scheduledPickupTime: `${editScheduledDate} ${editScheduledTime}:00`,
+        remark: editRemark,
+      })
+      if (res.success) {
+        setShowEditModal(false)
+        setToast({ message: res.message, type: 'success' })
+        await reloadOrders()
+      } else {
+        setToast({ message: res.message, type: 'error' })
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const openCancel = (order: Order) => {
+    setSelectedOrder(order)
+    setCancelReason('')
+    setCancelError('')
+    setShowCancelModal(true)
+  }
+
+  const saveCancel = async () => {
+    if (!selectedOrder || submitting) return
+    if (!cancelReason.trim()) {
+      setCancelError('请填写取消原因')
+      return
+    }
+    if (cancelReason.length > 500) {
+      setCancelError('取消原因不能超过500字')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res = await api.cancelOrder(selectedOrder.id, cancelReason)
+      if (res.success) {
+        setShowCancelModal(false)
+        setToast({ message: res.message, type: 'success' })
+        await reloadOrders()
+      } else {
+        setToast({ message: res.message, type: 'error' })
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   return (
     <div className="space-y-5">
       {toast && (
@@ -339,6 +529,12 @@ export default function Orders() {
               共 {filteredOrders.length} 条
             </span>
           </div>
+        }
+        extra={
+          <Button variant="primary" onClick={openCreate} className="gap-1.5">
+            <Plus size={14} />
+            新增订单
+          </Button>
         }
       >
         {filteredOrders.length === 0 ? (
@@ -559,6 +755,12 @@ export default function Orders() {
                           <Pencil size={14} />
                           修改备注
                         </Button>
+                        {!['picked_up', 'cancelled', 'failed'].includes(order.status) && (
+                          <Button size="sm" variant="secondary" onClick={() => openEdit(order)} className="gap-1.5">
+                            <Edit3 size={14} />
+                            编辑信息
+                          </Button>
+                        )}
                         <Button size="sm" variant="secondary" onClick={() => openContact(order)} className="gap-1.5">
                           <Phone size={14} />
                           记录联系
@@ -572,6 +774,15 @@ export default function Orders() {
                             <Button size="sm" variant="danger" onClick={() => openFailed(order)} className="gap-1.5">
                               <XCircle size={14} />
                               标记失败
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => openCancel(order)}
+                              className="gap-1.5 !text-red-600 !border-red-200 hover:!bg-red-50"
+                            >
+                              <Ban size={14} />
+                              取消订单
                             </Button>
                             <Button
                               size="sm"
@@ -760,6 +971,276 @@ export default function Orders() {
             placeholder="如：顾客电话无法接通、多次提醒仍未来取货等..."
             rows={4}
           />
+        </div>
+      </Modal>
+
+      <Modal
+        open={showCreateModal}
+        title="新增到店自提订单"
+        onClose={() => setShowCreateModal(false)}
+        width="max-w-3xl"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowCreateModal(false)}>取消</Button>
+            <Button variant="primary" onClick={saveCreate}>提交订单</Button>
+          </>
+        }
+      >
+        <div className="space-y-5">
+          <Select
+            label="所属门店"
+            value={newStoreId}
+            onChange={setNewStoreId}
+            options={state.stores.map((s) => ({ value: s.id, label: s.name }))}
+            placeholder="请选择门店"
+            required
+            error={newErrors.storeId}
+          />
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-medium text-gray-700">
+                商品明细 <span className="text-red-500">*</span>
+              </label>
+              <Button size="sm" variant="secondary" onClick={addNewItem} className="gap-1 !py-1">
+                <Plus size={12} />
+                添加商品
+              </Button>
+            </div>
+            {newErrors.items && (
+              <div className="mb-2 text-xs text-red-500">{newErrors.items}</div>
+            )}
+            {newItems.length === 0 ? (
+              <div className="p-6 rounded-lg border-2 border-dashed border-gray-200 text-center text-sm text-gray-400">
+                暂无商品，点击右上角「添加商品」开始
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {newItems.map((it, idx) => {
+                  const product = state.products.find((p) => p.id === it.productId)
+                  const stock = getNewItemStock(it.productId, newStoreId)
+                  return (
+                    <div key={idx} className="p-3 rounded-lg border border-gray-100 bg-gray-50/50 space-y-2">
+                      <div className="flex items-start gap-2">
+                        <div className="flex-1">
+                          <Select
+                            value={it.productId}
+                            onChange={(v) => updateNewItem(idx, 'productId', v)}
+                            options={state.products.map((p) => ({ value: p.id, label: `${p.name} (${p.sku}) · ¥${p.price}` }))}
+                            placeholder="选择商品"
+                            error={newErrors[`item-${idx}-pid`]}
+                          />
+                        </div>
+                        <button
+                          onClick={() => removeNewItem(idx)}
+                          className="mt-1 p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                          title="移除商品"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <Input
+                          type="number"
+                          label="购买数量"
+                          value={String(it.quantity)}
+                          onChange={(v) => updateNewItem(idx, 'quantity', Number(v) || 0)}
+                          min={1}
+                          error={newErrors[`item-${idx}-qty`]}
+                        />
+                        <div>
+                          <div className="text-xs text-gray-500 mb-1.5">门店库存</div>
+                          <div className={`px-3 py-2 rounded-md text-sm border border-gray-100 bg-white font-medium
+                            ${product && stock <= product.warningThreshold ? 'text-red-600' : 'text-gray-700'}`}>
+                            {product ? `${stock} ${product.unit}` : '-'}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-500 mb-1.5">小计金额</div>
+                          <div className="px-3 py-2 rounded-md text-sm border border-gray-100 bg-white font-semibold text-blue-600">
+                            {product ? formatMoney(product.price * it.quantity) : '-'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            {newItems.length > 0 && (
+              <div className="mt-3 p-3 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-blue-700">
+                  <ShoppingCart size={14} />
+                  <span>共 {newItems.reduce((s, i) => s + i.quantity, 0)} 件商品</span>
+                </div>
+                <div className="text-lg font-bold text-blue-700">
+                  合计 {formatMoney(
+                    newItems.reduce((s, i) => {
+                      const p = state.products.find((pp) => pp.id === i.productId)
+                      return s + (p ? p.price * i.quantity : 0)
+                    }, 0)
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="联系人姓名"
+              value={newContactName}
+              onChange={setNewContactName}
+              placeholder="请输入联系人姓名"
+              required
+              error={newErrors.contactName}
+            />
+            <Input
+              label="联系电话"
+              value={newContactPhone}
+              onChange={setNewContactPhone}
+              placeholder="请输入11位手机号"
+              required
+              error={newErrors.contactPhone}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="约定取货日期"
+              type="date"
+              value={newScheduledDate}
+              onChange={setNewScheduledDate}
+              required
+              error={newErrors.scheduled}
+            />
+            <Input
+              label="约定取货时间"
+              type="time"
+              value={newScheduledTime}
+              onChange={setNewScheduledTime}
+              required
+            />
+          </div>
+
+          <Textarea
+            label="订单备注（可选）"
+            value={newRemark}
+            onChange={setNewRemark}
+            placeholder="如：包装要求、留言等..."
+            rows={3}
+          />
+        </div>
+      </Modal>
+
+      <Modal
+        open={showEditModal}
+        title={selectedOrder ? `编辑订单信息 · ${selectedOrder.orderNo}` : '编辑订单信息'}
+        onClose={() => setShowEditModal(false)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowEditModal(false)}>取消</Button>
+            <Button variant="primary" onClick={saveEdit}>保存修改</Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {selectedOrder && ['picked_up', 'cancelled', 'failed'].includes(selectedOrder.status) && (
+            <div className="p-3 rounded-lg bg-amber-50 border border-amber-100 text-sm text-amber-700">
+              当前订单已处于终态，不可修改
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="联系人姓名"
+              value={editContactName}
+              onChange={setEditContactName}
+              placeholder="请输入联系人姓名"
+              required
+              error={editErrors.contactName}
+            />
+            <Input
+              label="联系电话"
+              value={editContactPhone}
+              onChange={setEditContactPhone}
+              placeholder="请输入11位手机号"
+              required
+              error={editErrors.contactPhone}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="约定取货日期"
+              type="date"
+              value={editScheduledDate}
+              onChange={setEditScheduledDate}
+              required
+              error={editErrors.scheduled}
+            />
+            <Input
+              label="约定取货时间"
+              type="time"
+              value={editScheduledTime}
+              onChange={setEditScheduledTime}
+              required
+            />
+          </div>
+          <Textarea
+            label="订单备注（可选）"
+            value={editRemark}
+            onChange={setEditRemark}
+            placeholder="如：包装要求、留言等..."
+            rows={3}
+          />
+        </div>
+      </Modal>
+
+      <Modal
+        open={showCancelModal}
+        title={selectedOrder ? `取消订单 · ${selectedOrder.orderNo}` : '取消订单'}
+        onClose={() => setShowCancelModal(false)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowCancelModal(false)}>取消操作</Button>
+            <Button variant="danger" onClick={saveCancel}>确认取消</Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="p-3 rounded-lg bg-red-50 border border-red-100 text-sm text-red-700">
+            <div className="font-medium flex items-center gap-1.5 mb-1">
+              <AlertTriangle size={14} />
+              重要提示
+            </div>
+            <div className="text-xs text-red-600">
+              取消订单后将无法恢复，订单状态会变为「已取消」。请确认已与顾客沟通并达成一致。
+            </div>
+          </div>
+          {selectedOrder && (
+            <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-gray-500">联系人</span>
+                <span className="font-medium text-gray-800">{selectedOrder.contactName} · {selectedOrder.contactPhone}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">约定自提</span>
+                <span className="font-medium text-gray-800">{selectedOrder.scheduledPickupTime}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">商品数量</span>
+                <span className="font-medium text-gray-800">{selectedOrder.items.reduce((s, i) => s + i.quantity, 0)} 件 · {formatMoney(selectedOrder.totalAmount)}</span>
+              </div>
+            </div>
+          )}
+          <Textarea
+            label="取消原因"
+            value={cancelReason}
+            onChange={setCancelReason}
+            placeholder="请详细填写取消原因，例如：顾客主动取消、门店缺货无法履约等..."
+            rows={4}
+            required
+            error={cancelError}
+          />
+          <div className="text-xs text-gray-400 text-right">{cancelReason.length}/500</div>
         </div>
       </Modal>
     </div>

@@ -195,12 +195,15 @@ interface InputProps {
   label?: string
   value: string
   onChange: (v: string) => void
-  placeholder?: string
   type?: string
-  error?: string
+  placeholder?: string
   required?: boolean
   disabled?: boolean
   className?: string
+  error?: string
+  min?: number | string
+  max?: number | string
+  step?: number | string
   onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void
 }
 
@@ -214,6 +217,9 @@ export function Input({
   required,
   disabled,
   className = '',
+  min,
+  max,
+  step,
   onKeyDown,
 }: InputProps) {
   return (
@@ -231,6 +237,9 @@ export function Input({
         placeholder={placeholder}
         disabled={disabled}
         onKeyDown={onKeyDown}
+        min={min}
+        max={max}
+        step={step}
         className={`w-full px-3 py-2 text-sm border rounded-md transition-colors
           ${error ? 'border-red-300 focus:ring-red-200 focus:border-red-400 bg-red-50'
                  : 'border-gray-200 focus:ring-blue-200 focus:border-blue-400'}
