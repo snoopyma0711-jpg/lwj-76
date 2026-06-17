@@ -21,7 +21,13 @@ const fail = (res: Response, message: string, status = 400) => {
 
 const OPERATOR_HEADER = 'x-operator'
 const getOperator = (req: Request) => {
-  return (req.headers[OPERATOR_HEADER] as string) || '系统'
+  const raw = req.headers[OPERATOR_HEADER] as string
+  if (!raw) return '系统'
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
 }
 
 app.get('/api/health', (_req, res) => {

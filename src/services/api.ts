@@ -12,7 +12,7 @@ interface ApiResult<T = any> {
 async function request<T = any>(path: string, options: RequestInit = {}): Promise<ApiResult<T>> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'x-operator': OPERATOR_NAME,
+    'x-operator': encodeURIComponent(OPERATOR_NAME),
     ...(options.headers as Record<string, string> || {}),
   }
   try {
