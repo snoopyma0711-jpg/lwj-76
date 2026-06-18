@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useReducer, ReactNode } from 'react'
+import React, { createContext, useContext, useReducer, ReactNode, useEffect } from 'react'
 import type { AppState, AppAction, Order, StoreStock, StockRecord, Product } from '../types'
 import { mockStores, mockProducts, mockOrders, mockStocks, mockStockRecords } from '../data/mockData'
 import { orderStatusMap } from '../utils/constants'
+import { api } from '../services/api'
 
 const initialState: AppState = {
   stores: mockStores,
@@ -186,6 +187,44 @@ const AppContext = createContext<AppContextValue | undefined>(undefined)
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState)
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadInitialData = async () => {
+      const [storesRes, productsRes, ordersRes, stocksRes, stockRecordsRes] = await Promise.allSettled([
+        api.getStores(),
+        api.getProducts(),
+        api.getOrders(),
+        api.getStocks(),
+        api.getStockRecords(),
+      ])
+
+      if (cancelled) return
+
+      if (storesRes.status === 'fulfilled' && storesRes.value.success && storesRes.value.data) {
+        dispatch({ type: 'SET_STORES', payload: storesRes.value.data })
+      }
+      if (productsRes.status === 'fulfilled' && productsRes.value.success && productsRes.value.data) {
+        dispatch({ type: 'SET_PRODUCTS', payload: productsRes.value.data })
+      }
+      if (ordersRes.status === 'fulfilled' && ordersRes.value.success && ordersRes.value.data) {
+        dispatch({ type: 'SET_ORDERS', payload: ordersRes.value.data })
+      }
+      if (stocksRes.status === 'fulfilled' && stocksRes.value.success && stocksRes.value.data) {
+        dispatch({ type: 'SET_STOCKS', payload: stocksRes.value.data })
+      }
+      if (stockRecordsRes.status === 'fulfilled' && stockRecordsRes.value.success && stockRecordsRes.value.data) {
+        dispatch({ type: 'SET_STOCK_RECORDS', payload: stockRecordsRes.value.data })
+      }
+    }
+
+    void loadInitialData()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const formatDate = (d: Date) => {
     const pad = (n: number) => String(n).padStart(2, '0')
