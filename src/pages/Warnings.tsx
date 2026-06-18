@@ -7,6 +7,7 @@ import {
   Store as StoreIcon,
   Package,
   ArrowDownToLine,
+  ArrowRightLeft,
   Eye,
   Phone,
   Clock,
@@ -105,13 +106,13 @@ export default function Warnings() {
         }
         extra={
           <Button
-            variant="secondary"
+            variant="primary"
             size="sm"
-            onClick={() => navigate('/inventory')}
+            onClick={() => navigate('/transfers')}
             className="gap-1.5"
           >
-            <ArrowDownToLine size={14} />
-            前往补货
+            <ArrowRightLeft size={14} />
+            调拨补货
           </Button>
         }
       >
@@ -238,18 +239,32 @@ export default function Warnings() {
                                 ) : (
                                   <span className="text-[11px] text-gray-400 px-2 py-1">暂无待处理订单受影响</span>
                                 )}
-                                <Button
-                                  size="sm"
-                                  variant="primary"
-                                  className="gap-1 !px-2.5 !py-1.5 !text-xs"
-                                  onClick={(e) => {
-                                    e?.stopPropagation()
-                                    navigate('/inventory')
-                                  }}
-                                >
-                                  <ArrowDownToLine size={12} />
-                                  立即补货
-                                </Button>
+                                <div className="flex items-center gap-1.5">
+                                  <Button
+                                    size="sm"
+                                    variant="primary"
+                                    className="gap-1 !px-2 !py-1 !text-xs"
+                                    onClick={(e) => {
+                                      e?.stopPropagation()
+                                      navigate('/transfers?type=replenish')
+                                    }}
+                                  >
+                                    <ArrowDownToLine size={11} />
+                                    补货
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    className="gap-1 !px-2 !py-1 !text-xs"
+                                    onClick={(e) => {
+                                      e?.stopPropagation()
+                                      navigate('/transfers?type=transfer')
+                                    }}
+                                  >
+                                    <ArrowRightLeft size={11} />
+                                    调拨
+                                  </Button>
+                                </div>
                               </div>
                             </div>
                           )

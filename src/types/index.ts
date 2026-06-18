@@ -108,11 +108,62 @@ export interface AppState {
   orders: Order[]
   stocks: StoreStock[]
   stockRecords: StockRecord[]
+  transfers: Transfer[]
   currentUser: {
     name: string
     role: 'manager' | 'staff'
     storeId: string
   }
+}
+
+export type TransferType = 'replenish' | 'transfer'
+export type TransferStatus =
+  | 'pending'
+  | 'approved'
+  | 'outbound'
+  | 'in_transit'
+  | 'inbound'
+  | 'completed'
+  | 'rejected'
+
+export interface TransferItem {
+  productId: string
+  productName: string
+  sku: string
+  quantity: number
+  unitPrice: number
+  actualOutboundQuantity?: number
+  actualInboundQuantity?: number
+}
+
+export interface TransferStatusLog {
+  id: string
+  status: TransferStatus
+  time: string
+  operator: string
+  remark?: string
+}
+
+export interface Transfer {
+  id: string
+  transferNo: string
+  type: TransferType
+  fromStoreId: string
+  fromStoreName: string
+  toStoreId: string
+  toStoreName: string
+  items: TransferItem[]
+  totalAmount: number
+  expectedArrivalTime?: string
+  actualOutboundTime?: string
+  actualInboundTime?: string
+  reason: string
+  status: TransferStatus
+  rejectReason?: string
+  statusLogs: TransferStatusLog[]
+  createdAt: string
+  createdBy: string
+  operator?: string
 }
 
 export type AppAction =
@@ -121,6 +172,7 @@ export type AppAction =
   | { type: 'SET_STORES'; payload: Store[] }
   | { type: 'SET_PRODUCTS'; payload: Product[] }
   | { type: 'SET_STOCK_RECORDS'; payload: StockRecord[] }
+  | { type: 'SET_TRANSFERS'; payload: Transfer[] }
   | { type: 'UPDATE_ORDER'; payload: Order }
   | { type: 'ADD_ORDER'; payload: Order }
   | { type: 'ADD_STATUS_LOG'; payload: { orderId: string; log: OrderStatusLog } }
@@ -129,3 +181,5 @@ export type AppAction =
   | { type: 'ADD_STOCK_RECORD'; payload: StockRecord }
   | { type: 'UPDATE_PRODUCT'; payload: Product }
   | { type: 'UPDATE_STORE'; payload: Store }
+  | { type: 'ADD_TRANSFER'; payload: Transfer }
+  | { type: 'UPDATE_TRANSFER'; payload: Transfer }

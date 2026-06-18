@@ -1,4 +1,4 @@
-import type { Store, Product, Order, StoreStock, StockRecord, OrderStatus } from '../types'
+import type { Store, Product, Order, StoreStock, StockRecord, OrderStatus, Transfer, TransferStatus, TransferType } from '../types'
 
 export const mockStores: Store[] = [
   {
@@ -478,3 +478,199 @@ function generateMockStockRecords(): StockRecord[] {
 }
 
 export const mockStockRecords: StockRecord[] = generateMockStockRecords()
+
+function generateMockTransfers(): Transfer[] {
+  const transfers: Transfer[] = []
+  let idx = 1
+
+  const statusDistribution: TransferStatus[] = [
+    'pending', 'pending',
+    'approved',
+    'outbound',
+    'in_transit',
+    'inbound',
+    'completed', 'completed', 'completed',
+    'rejected',
+  ]
+
+  const types: TransferType[] = ['replenish', 'transfer', 'transfer', 'transfer']
+  const reasons = [
+    '库存预警，需要紧急补货',
+    '周末促销活动，预计销量大增',
+    '周边门店库存充足，申请调拨',
+    '新品上市，提前备货',
+    '节日备货，应对客流高峰',
+  ]
+
+  for (let dayOffset = -10; dayOffset <= 0; dayOffset++) {
+    const transfersPerDay = dayOffset === 0 ? 3 : 1 + Math.floor(Math.random() * 2)
+    for (let i = 0; i < transfersPerDay; i++) {
+      const type = types[Math.floor(Math.random() * types.length)]
+      const status = dayOffset === 0 && i < 1
+        ? (['pending', 'approved'] as TransferStatus[])[Math.floor(Math.random() * 2)]
+        : statusDistribution[Math.floor(Math.random() * statusDistribution.length)]
+
+      const toStoreIdx = Math.floor(Math.random() * mockStores.length)
+      let fromStoreIdx: number
+      if (type === 'replenish') {
+        fromStoreIdx = toStoreIdx
+      } else {
+        do {
+          fromStoreIdx = Math.floor(Math.random() * mockStores.length)
+        } while (fromStoreIdx === toStoreIdx)
+      }
+
+      const fromStore = mockStores[fromStoreIdx]
+      const toStore = mockStores[toStoreIdx]
+
+      const numItems = 1 + Math.floor(Math.random() * 3)
+      const items = []
+      const usedProducts = new Set<string>()
+      let total = 0
+
+      for (let j = 0; j < numItems; j++) {
+        let prod: Product
+        do {
+          prod = mockProducts[Math.floor(Math.random() * mockProducts.length)]
+        } while (usedProducts.has(prod.id))
+        usedProducts.add(prod.id)
+
+        const qty = 5 + Math.floor(Math.random() * 20)
+        total += prod.price * qty
+
+        let actualOutboundQty: number | undefined
+        let actualInboundQty: number | undefined
+        if (['outbound', 'in_transit', 'inbound', 'completed'].includes(status)) {
+          actualOutboundQty = qty
+        }
+        if (status === 'completed') {
+          actualInboundQty = qty
+        }
+
+        items.push({
+          productId: prod.id,
+          productName: prod.name,
+          sku: prod.sku,
+          quantity: qty,
+          unitPrice: prod.price,
+          actualOutboundQuantity: actualOutboundQty,
+          actualInboundQuantity: actualInboundQty,
+        })
+      }
+
+      const createDate = addHours(addDays(today, dayOffset), 9 + Math.floor(Math.random() * 8))
+      const transferNo = `TR${formatDate(createDate).slice(0, 10).replace(/-/g, '')}${String(idx).padStart(4, '0')}`
+
+      const statusLogs: Transfer['statusLogs'] = []
+      const baseTime = createDate
+
+      statusLogs.push({
+        id: `tlog-${idx}-0`,
+        status: 'pending' as TransferStatus,
+        time: formatDate(baseTime),
+        operator: staffNames[Math.floor(Math.random() * staffNames.length)],
+        remark: reasons[Math.floor(Math.random() * reasons.length)],
+      })
+
+      if (status !== 'pending' && status !== 'rejected') {
+        statusLogs.push({
+          id: `tlog-${idx}-1`,
+          status: 'approved',
+          time: formatDate(addHours(baseTime, 0.5 + Math.random())),
+          operator: '张店长',
+          remark: '已审批通过，请尽快安排出库',
+        })
+      }
+
+      if (['outbound', 'in_transit', 'inbound', 'completed'].includes(status)) {
+        statusLogs.push({
+          id: `tlog-${idx}-2`,
+          status: 'outbound',
+          time: formatDate(addHours(baseTime, 2 + Math.random() * 3)),
+          operator: staffNames[Math.floor(Math.random() * staffNames.length)],
+          remark: '商品已出库，正在安排运输',
+        })
+      }
+
+      if (['in_transit', 'inbound', 'completed'].includes(status)) {
+        statusLogs.push({
+          id: `tlog-${idx}-3`,
+          status: 'in_transit',
+          time: formatDate(addHours(baseTime, 4 + Math.random() * 5)),
+          operator: '物流系统',
+          remark: '商品运输中，预计今日送达',
+        })
+      }
+
+      if (['inbound', 'completed'].includes(status)) {
+        statusLogs.push({
+          id: `tlog-${idx}-4`,
+          status: 'inbound',
+          time: formatDate(addHours(baseTime, 8 + Math.random() * 4)),
+          operator: '物流系统',
+          remark: '商品已到达调入门店，等待确认入库',
+        })
+      }
+
+      if (status === 'completed') {
+        statusLogs.push({
+          id: `tlog-${idx}-5`,
+          status: 'completed',
+          time: formatDate(addHours(baseTime, 10 + Math.random() * 3)),
+          operator: staffNames[Math.floor(Math.random() * staffNames.length)],
+          remark: '已确认入库，调拨完成',
+        })
+      }
+
+      if (status === 'rejected') {
+        statusLogs.push({
+          id: `tlog-${idx}-1`,
+          status: 'rejected',
+          time: formatDate(addHours(baseTime, 1 + Math.random())),
+          operator: '张店长',
+          remark: '库存充足，无需调拨/补货，已拒绝',
+        })
+      }
+
+      const expectedArrival = formatDate(addDays(baseTime, type === 'replenish' ? 3 : 1))
+
+      let actualOutboundTime: string | undefined
+      let actualInboundTime: string | undefined
+      if (['outbound', 'in_transit', 'inbound', 'completed'].includes(status)) {
+        actualOutboundTime = statusLogs.find(l => l.status === 'outbound')?.time
+      }
+      if (status === 'completed') {
+        actualInboundTime = statusLogs.find(l => l.status === 'completed')?.time
+      }
+
+      const transfer: Transfer = {
+        id: `transfer-${String(idx).padStart(5, '0')}`,
+        transferNo,
+        type,
+        fromStoreId: fromStore.id,
+        fromStoreName: type === 'replenish' ? '总部仓库' : fromStore.name,
+        toStoreId: toStore.id,
+        toStoreName: toStore.name,
+        items,
+        totalAmount: Math.round(total * 100) / 100,
+        expectedArrivalTime: expectedArrival,
+        actualOutboundTime,
+        actualInboundTime,
+        reason: reasons[Math.floor(Math.random() * reasons.length)],
+        status,
+        rejectReason: status === 'rejected' ? '库存充足，无需调拨/补货' : undefined,
+        statusLogs,
+        createdAt: formatDate(createDate),
+        createdBy: staffNames[Math.floor(Math.random() * staffNames.length)],
+        operator: staffNames[Math.floor(Math.random() * staffNames.length)],
+      }
+
+      transfers.push(transfer)
+      idx++
+    }
+  }
+
+  return transfers.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+}
+
+export const mockTransfers: Transfer[] = generateMockTransfers()
