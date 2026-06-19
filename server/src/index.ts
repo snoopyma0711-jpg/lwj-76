@@ -198,6 +198,103 @@ app.post('/api/orders/:id/pickup', (req, res) => {
   else fail(res, result.message)
 })
 
+app.get('/api/transfers', (req, res) => {
+  const { keyword, status, type, storeId, startDate, endDate } = req.query
+  const transfers = db.getTransfers({
+    keyword: keyword as string,
+    status: status as any,
+    type: type as any,
+    storeId: storeId as string,
+    startDate: startDate as string,
+    endDate: endDate as string,
+  })
+  ok(res, transfers)
+})
+
+app.get('/api/transfers/:id', (req, res) => {
+  const transfer = db.getTransferById(req.params.id)
+  if (!transfer) return fail(res, '申请不存在', 404)
+  ok(res, transfer)
+})
+
+app.get('/api/transfers/by-no/:transferNo', (req, res) => {
+  const transfer = db.getTransferByNo(req.params.transferNo)
+  if (!transfer) return fail(res, '申请不存在', 404)
+  ok(res, transfer)
+})
+
+app.post('/api/transfers', (req, res) => {
+  const { type, fromStoreId, toStoreId, items, reason, expectedArrivalTime } = req.body || {}
+  const result = db.createTransfer({
+    type,
+    fromStoreId,
+    toStoreId,
+    items,
+    reason,
+    expectedArrivalTime,
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, result.data, result.message)
+  else fail(res, result.message)
+})
+
+app.put('/api/transfers/:id/approve', (req, res) => {
+  const { remark } = req.body || {}
+  const result = db.approveTransfer({
+    transferId: req.params.id,
+    remark,
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, null, result.message)
+  else fail(res, result.message)
+})
+
+app.put('/api/transfers/:id/reject', (req, res) => {
+  const { reason } = req.body || {}
+  const result = db.rejectTransfer({
+    transferId: req.params.id,
+    reason: reason || '',
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, null, result.message)
+  else fail(res, result.message)
+})
+
+app.put('/api/transfers/:id/outbound', (req, res) => {
+  const { itemsActual, remark } = req.body || {}
+  const result = db.processTransferOutbound({
+    transferId: req.params.id,
+    itemsActual,
+    remark,
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, null, result.message)
+  else fail(res, result.message)
+})
+
+app.put('/api/transfers/:id/in-transit', (req, res) => {
+  const { remark } = req.body || {}
+  const result = db.processTransferInTransit({
+    transferId: req.params.id,
+    remark,
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, null, result.message)
+  else fail(res, result.message)
+})
+
+app.put('/api/transfers/:id/inbound', (req, res) => {
+  const { itemsActual, remark } = req.body || {}
+  const result = db.processTransferInbound({
+    transferId: req.params.id,
+    itemsActual,
+    remark,
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, null, result.message)
+  else fail(res, result.message)
+})
+
 app.get('/api/stats/summary', (_req, res) => {
   const today = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')

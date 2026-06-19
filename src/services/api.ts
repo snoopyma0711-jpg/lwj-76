@@ -1,4 +1,4 @@
-import type { Order, OrderStatus, Store, Product, StoreStock, StockRecord } from '../types'
+import type { Order, OrderStatus, Store, Product, StoreStock, StockRecord, Transfer, TransferType, TransferStatus } from '../types'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api'
 const OPERATOR_NAME = '张店长'
@@ -147,4 +147,61 @@ export const api = {
     storeStats: Array<Store & { completed: number; total: number; completionRate: number; pendingCount: number }>
     trend: Array<{ date: string; newOrders: number; completed: number }>
   }>('/stats/summary'),
+
+  getTransfers: (params?: {
+    keyword?: string
+    status?: TransferStatus | 'all'
+    type?: TransferType | 'all'
+    storeId?: string
+    startDate?: string
+    endDate?: string
+  }) => {
+    const qs = new URLSearchParams()
+    if (params?.keyword) qs.set('keyword', params.keyword)
+    if (params?.status) qs.set('status', params.status)
+    if (params?.type) qs.set('type', params.type)
+    if (params?.storeId) qs.set('storeId', params.storeId)
+    if (params?.startDate) qs.set('startDate', params.startDate)
+    if (params?.endDate) qs.set('endDate', params.endDate)
+    return request<Transfer[]>(`/transfers${qs.toString() ? '?' + qs.toString() : ''}`)
+  },
+  getTransferById: (id: string) => request<Transfer>(`/transfers/${id}`),
+  getTransferByNo: (transferNo: string) => request<Transfer>(`/transfers/by-no/${encodeURIComponent(transferNo)}`),
+  createTransfer: (data: {
+    type: TransferType
+    fromStoreId: string
+    toStoreId: string
+    items: { productId: string; quantity: number }[]
+    reason: string
+    expectedArrivalTime?: string
+  }) => request<Transfer>('/transfers', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  approveTransfer: (transferId: string, data?: { remark?: string }) => request(`/transfers/${transferId}/approve`, {
+    method: 'PUT',
+    body: JSON.stringify(data || {}),
+  }),
+  rejectTransfer: (transferId: string, data: { reason: string }) => request(`/transfers/${transferId}/reject`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  processTransferOutbound: (transferId: string, data?: {
+    itemsActual?: { productId: string; actualQuantity: number }[]
+    remark?: string
+  }) => request(`/transfers/${transferId}/outbound`, {
+    method: 'PUT',
+    body: JSON.stringify(data || {}),
+  }),
+  processTransferInTransit: (transferId: string, data?: { remark?: string }) => request(`/transfers/${transferId}/in-transit`, {
+    method: 'PUT',
+    body: JSON.stringify(data || {}),
+  }),
+  processTransferInbound: (transferId: string, data?: {
+    itemsActual?: { productId: string; actualQuantity: number }[]
+    remark?: string
+  }) => request(`/transfers/${transferId}/inbound`, {
+    method: 'PUT',
+    body: JSON.stringify(data || {}),
+  }),
 }

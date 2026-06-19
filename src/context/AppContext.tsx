@@ -241,12 +241,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let cancelled = false
 
     const loadInitialData = async () => {
-      const [storesRes, productsRes, ordersRes, stocksRes, stockRecordsRes] = await Promise.allSettled([
+      const [storesRes, productsRes, ordersRes, stocksRes, stockRecordsRes, transfersRes] = await Promise.allSettled([
         api.getStores(),
         api.getProducts(),
         api.getOrders(),
         api.getStocks(),
         api.getStockRecords(),
+        api.getTransfers(),
       ])
 
       if (cancelled) return
@@ -265,6 +266,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       if (stockRecordsRes.status === 'fulfilled' && stockRecordsRes.value.success && stockRecordsRes.value.data) {
         dispatch({ type: 'SET_STOCK_RECORDS', payload: stockRecordsRes.value.data })
+      }
+      if (transfersRes.status === 'fulfilled' && transfersRes.value.success && transfersRes.value.data) {
+        dispatch({ type: 'SET_TRANSFERS', payload: transfersRes.value.data })
       }
     }
 
@@ -771,19 +775,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return { success: true, message: '订单已取消' }
   }
 
+  const refreshTransfers = async () => {
+    const res = await api.getTransfers()
+    if (res.success && res.data) {
+      dispatch({ type: 'SET_TRANSFERS', payload: res.data })
+    }
+  }
+
+  const refreshStocksAndRecords = async () => {
+    const [stocksRes, recordsRes] = await Promise.all([api.getStocks(), api.getStockRecords()])
+    if (stocksRes.success && stocksRes.data) {
+      dispatch({ type: 'SET_STOCKS', payload: stocksRes.data })
+    }
+    if (recordsRes.success && recordsRes.data) {
+      dispatch({ type: 'SET_STOCK_RECORDS', payload: recordsRes.data })
+    }
+  }
+
   const getStoreAvailableStock: AppContextValue['getStoreAvailableStock'] = (storeId, productId) => {
     const stock = state.stocks.find((s) => s.storeId === storeId && s.productId === productId)
     return stock ? stock.quantity - stock.lockedQuantity : 0
   }
 
-  const generateTransferNo = () => {
-    const d = new Date()
-    const pad = (n: number) => String(n).padStart(2, '0')
-    const seq = String(state.transfers.length + 1).padStart(4, '0')
-    return `TR${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${seq}`
-  }
-
-  const createTransfer: AppContextValue['createTransfer'] = ({
+  const createTransfer: AppContextValue['createTransfer'] = async ({
     type,
     fromStoreId,
     toStoreId,
@@ -791,313 +805,65 @@ export function AppProvider({ children }: { children: ReactNode }) {
     reason,
     expectedArrivalTime,
   }) => {
-    if (!toStoreId) return { success: false, message: '请选择调入门店' }
-    if (type === 'transfer' && !fromStoreId) return { success: false, message: '请选择调出门店' }
-    if (type === 'transfer' && fromStoreId === toStoreId) {
-      return { success: false, message: '调出门店和调入门店不能相同' }
+    const res = await api.createTransfer({ type, fromStoreId, toStoreId, items, reason, expectedArrivalTime })
+    if (res.success && res.data) {
+      dispatch({ type: 'ADD_TRANSFER', payload: res.data })
+      return { success: true, message: res.message, transfer: res.data }
     }
-    if (!items || items.length === 0) return { success: false, message: '请添加至少一个商品' }
-    if (!reason.trim()) return { success: false, message: '请填写申请原因' }
-    if (reason.length > 500) return { success: false, message: '申请原因不能超过500字' }
-
-    const toStore = state.stores.find((s) => s.id === toStoreId)
-    if (!toStore) return { success: false, message: '调入门店不存在' }
-
-    let fromStoreName = '总部仓库'
-    if (type === 'transfer') {
-      const fromStore = state.stores.find((s) => s.id === fromStoreId)
-      if (!fromStore) return { success: false, message: '调出门店不存在' }
-      fromStoreName = fromStore.name
-    }
-
-    const transferItems: Transfer['items'] = []
-    let totalAmount = 0
-
-    for (const it of items) {
-      if (!it.quantity || it.quantity <= 0) {
-        return { success: false, message: '商品数量必须大于0' }
-      }
-      const product = state.products.find((p) => p.id === it.productId)
-      if (!product) return { success: false, message: '商品不存在' }
-
-      if (type === 'transfer') {
-        const available = getStoreAvailableStock(fromStoreId, it.productId)
-        if (it.quantity > available) {
-          return { success: false, message: `商品「${product.name}」在${fromStoreName}库存不足，当前可用${available}件` }
-        }
-      }
-
-      transferItems.push({
-        productId: product.id,
-        productName: product.name,
-        sku: product.sku,
-        quantity: it.quantity,
-        unitPrice: product.price,
-      })
-      totalAmount += product.price * it.quantity
-    }
-
-    const time = nowStr()
-    const transfer: Transfer = {
-      id: `transfer-${Date.now()}`,
-      transferNo: generateTransferNo(),
-      type,
-      fromStoreId,
-      fromStoreName,
-      toStoreId,
-      toStoreName: toStore.name,
-      items: transferItems,
-      totalAmount: Math.round(totalAmount * 100) / 100,
-      expectedArrivalTime,
-      reason: reason.trim(),
-      status: 'pending',
-      statusLogs: [
-        {
-          id: `tlog-${Date.now()}-0`,
-          status: 'pending',
-          time,
-          operator: state.currentUser.name,
-          remark: reason.trim(),
-        },
-      ],
-      createdAt: time,
-      createdBy: state.currentUser.name,
-      operator: state.currentUser.name,
-    }
-
-    dispatch({ type: 'ADD_TRANSFER', payload: transfer })
-    return { success: true, message: '申请提交成功', transfer }
+    return { success: false, message: res.message }
   }
 
-  const approveTransfer: AppContextValue['approveTransfer'] = ({ transfer, remark }) => {
-    if (transfer.status !== 'pending') {
-      return { success: false, message: '只有待处理的申请才能审批' }
+  const approveTransfer: AppContextValue['approveTransfer'] = async ({ transfer, remark }) => {
+    const res = await api.approveTransfer(transfer.id, { remark })
+    if (res.success) {
+      await refreshTransfers()
+      return { success: true, message: res.message }
     }
-    const time = nowStr()
-    const updatedTransfer: Transfer = {
-      ...transfer,
-      status: 'approved',
-      statusLogs: [
-        ...transfer.statusLogs,
-        {
-          id: `tlog-${Date.now()}`,
-          status: 'approved',
-          time,
-          operator: state.currentUser.name,
-          remark: remark || '已审批通过，请尽快安排出库',
-        },
-      ],
-    }
-    dispatch({ type: 'UPDATE_TRANSFER', payload: updatedTransfer })
-    return { success: true, message: '审批通过' }
+    return { success: false, message: res.message }
   }
 
-  const rejectTransfer: AppContextValue['rejectTransfer'] = ({ transfer, reason }) => {
-    if (transfer.status !== 'pending') {
-      return { success: false, message: '只有待处理的申请才能拒绝' }
+  const rejectTransfer: AppContextValue['rejectTransfer'] = async ({ transfer, reason }) => {
+    const res = await api.rejectTransfer(transfer.id, { reason })
+    if (res.success) {
+      await refreshTransfers()
+      return { success: true, message: res.message }
     }
-    if (!reason.trim()) return { success: false, message: '请填写拒绝原因' }
-    if (reason.length > 500) return { success: false, message: '拒绝原因不能超过500字' }
-    const time = nowStr()
-    const updatedTransfer: Transfer = {
-      ...transfer,
-      status: 'rejected',
-      rejectReason: reason.trim(),
-      statusLogs: [
-        ...transfer.statusLogs,
-        {
-          id: `tlog-${Date.now()}`,
-          status: 'rejected',
-          time,
-          operator: state.currentUser.name,
-          remark: reason.trim(),
-        },
-      ],
-    }
-    dispatch({ type: 'UPDATE_TRANSFER', payload: updatedTransfer })
-    return { success: true, message: '已拒绝申请' }
+    return { success: false, message: res.message }
   }
 
-  const processTransferOutbound: AppContextValue['processTransferOutbound'] = ({
+  const processTransferOutbound: AppContextValue['processTransferOutbound'] = async ({
     transfer,
     itemsActual,
     remark,
   }) => {
-    if (!['approved', 'outbound'].includes(transfer.status)) {
-      return { success: false, message: '当前状态不允许出库操作' }
+    const res = await api.processTransferOutbound(transfer.id, { itemsActual, remark })
+    if (res.success) {
+      await Promise.all([refreshTransfers(), refreshStocksAndRecords()])
+      return { success: true, message: res.message }
     }
-
-    const time = nowStr()
-    const actualItems = transfer.items.map((item) => {
-      const actual = itemsActual?.find((a) => a.productId === item.productId)?.actualQuantity ?? item.quantity
-      if (actual < 0) {
-        throw new Error(`商品「${item.productName}」实际出库数量不能为负数`)
-      }
-      if (actual > item.quantity) {
-        throw new Error(`商品「${item.productName}」实际出库数量不能超过申请数量`)
-      }
-      return { ...item, actualOutboundQuantity: actual }
-    })
-
-    for (const item of actualItems) {
-      if (item.actualOutboundQuantity === undefined) continue
-      if (transfer.type === 'transfer' && item.actualOutboundQuantity > 0) {
-        const stock = state.stocks.find(
-          (s) => s.productId === item.productId && s.storeId === transfer.fromStoreId,
-        )
-        const available = stock ? stock.quantity - stock.lockedQuantity : 0
-        if (item.actualOutboundQuantity > available) {
-          return { success: false, message: `商品「${item.productName}」库存不足，当前可用${available}件` }
-        }
-      }
-    }
-
-    for (const item of actualItems) {
-      if (item.actualOutboundQuantity === undefined || item.actualOutboundQuantity <= 0) continue
-      if (transfer.type === 'transfer') {
-        const stock = state.stocks.find(
-          (s) => s.productId === item.productId && s.storeId === transfer.fromStoreId,
-        )
-        if (stock) {
-          const newStock: StoreStock = {
-            ...stock,
-            quantity: stock.quantity - item.actualOutboundQuantity,
-            updatedAt: time,
-          }
-          dispatch({ type: 'UPDATE_STOCK', payload: newStock })
-          const record: StockRecord = {
-            id: `stock-rec-${Date.now()}-${item.productId}`,
-            time,
-            productId: item.productId,
-            productName: item.productName,
-            storeId: transfer.fromStoreId,
-            storeName: transfer.fromStoreName,
-            type: 'out',
-            quantity: item.actualOutboundQuantity,
-            beforeQuantity: stock.quantity,
-            afterQuantity: stock.quantity - item.actualOutboundQuantity,
-            operator: state.currentUser.name,
-            relatedOrderNo: transfer.transferNo,
-            remark: '门店调拨出库',
-          }
-          dispatch({ type: 'ADD_STOCK_RECORD', payload: record })
-        }
-      }
-    }
-
-    const updatedTransfer: Transfer = {
-      ...transfer,
-      status: 'outbound',
-      items: actualItems,
-      actualOutboundTime: time,
-      statusLogs: [
-        ...transfer.statusLogs,
-        {
-          id: `tlog-${Date.now()}`,
-          status: 'outbound',
-          time,
-          operator: state.currentUser.name,
-          remark: remark || '商品已出库，正在安排运输',
-        },
-      ],
-    }
-    dispatch({ type: 'UPDATE_TRANSFER', payload: updatedTransfer })
-    return { success: true, message: '出库成功' }
+    return { success: false, message: res.message }
   }
 
-  const processTransferInTransit: AppContextValue['processTransferInTransit'] = ({ transfer, remark }) => {
-    if (transfer.status !== 'outbound') {
-      return { success: false, message: '只有已出库的申请才能标记为运输中' }
+  const processTransferInTransit: AppContextValue['processTransferInTransit'] = async ({ transfer, remark }) => {
+    const res = await api.processTransferInTransit(transfer.id, { remark })
+    if (res.success) {
+      await refreshTransfers()
+      return { success: true, message: res.message }
     }
-    const time = nowStr()
-    const updatedTransfer: Transfer = {
-      ...transfer,
-      status: 'in_transit',
-      statusLogs: [
-        ...transfer.statusLogs,
-        {
-          id: `tlog-${Date.now()}`,
-          status: 'in_transit',
-          time,
-          operator: state.currentUser.name,
-          remark: remark || '商品运输中',
-        },
-      ],
-    }
-    dispatch({ type: 'UPDATE_TRANSFER', payload: updatedTransfer })
-    return { success: true, message: '已标记为运输中' }
+    return { success: false, message: res.message }
   }
 
-  const processTransferInbound: AppContextValue['processTransferInbound'] = ({
+  const processTransferInbound: AppContextValue['processTransferInbound'] = async ({
     transfer,
     itemsActual,
     remark,
   }) => {
-    if (!['in_transit', 'inbound'].includes(transfer.status)) {
-      return { success: false, message: '当前状态不允许入库操作' }
+    const res = await api.processTransferInbound(transfer.id, { itemsActual, remark })
+    if (res.success) {
+      await Promise.all([refreshTransfers(), refreshStocksAndRecords()])
+      return { success: true, message: res.message }
     }
-
-    const time = nowStr()
-    const actualItems = transfer.items.map((item) => {
-      const actual = itemsActual?.find((a) => a.productId === item.productId)?.actualQuantity
-        ?? item.actualOutboundQuantity
-        ?? item.quantity
-      if (actual < 0) {
-        throw new Error(`商品「${item.productName}」实际入库数量不能为负数`)
-      }
-      return { ...item, actualInboundQuantity: actual }
-    })
-
-    for (const item of actualItems) {
-      if (item.actualInboundQuantity === undefined || item.actualInboundQuantity <= 0) continue
-      const stock = state.stocks.find(
-        (s) => s.productId === item.productId && s.storeId === transfer.toStoreId,
-      )
-      const beforeQty = stock?.quantity ?? 0
-      const newStock: StoreStock = {
-        productId: item.productId,
-        storeId: transfer.toStoreId,
-        quantity: beforeQty + item.actualInboundQuantity,
-        lockedQuantity: stock?.lockedQuantity ?? 0,
-        updatedAt: time,
-      }
-      dispatch({ type: 'UPDATE_STOCK', payload: newStock })
-      const record: StockRecord = {
-        id: `stock-rec-${Date.now()}-${item.productId}`,
-        time,
-        productId: item.productId,
-        productName: item.productName,
-        storeId: transfer.toStoreId,
-        storeName: transfer.toStoreName,
-        type: 'in',
-        quantity: item.actualInboundQuantity,
-        beforeQuantity: beforeQty,
-        afterQuantity: beforeQty + item.actualInboundQuantity,
-        operator: state.currentUser.name,
-        relatedOrderNo: transfer.transferNo,
-        remark: '门店调拨入库',
-      }
-      dispatch({ type: 'ADD_STOCK_RECORD', payload: record })
-    }
-
-    const updatedTransfer: Transfer = {
-      ...transfer,
-      status: 'completed',
-      items: actualItems,
-      actualInboundTime: time,
-      statusLogs: [
-        ...transfer.statusLogs,
-        {
-          id: `tlog-${Date.now()}`,
-          status: 'completed',
-          time,
-          operator: state.currentUser.name,
-          remark: remark || '已确认入库，调拨完成',
-        },
-      ],
-    }
-    dispatch({ type: 'UPDATE_TRANSFER', payload: updatedTransfer })
-    return { success: true, message: '入库成功，调拨已完成' }
+    return { success: false, message: res.message }
   }
 
   return (

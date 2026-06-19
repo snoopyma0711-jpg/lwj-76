@@ -10,6 +10,56 @@ export type OrderStatus =
 
 export type StockChangeType = 'in' | 'out' | 'adjust'
 
+export type TransferType = 'replenish' | 'transfer'
+export type TransferStatus =
+  | 'pending'
+  | 'approved'
+  | 'outbound'
+  | 'in_transit'
+  | 'inbound'
+  | 'completed'
+  | 'rejected'
+
+export interface TransferItem {
+  productId: string
+  productName: string
+  sku: string
+  quantity: number
+  unitPrice: number
+  actualOutboundQuantity?: number
+  actualInboundQuantity?: number
+}
+
+export interface TransferStatusLog {
+  id: string
+  status: TransferStatus
+  time: string
+  operator: string
+  remark?: string
+}
+
+export interface Transfer {
+  id: string
+  transferNo: string
+  type: TransferType
+  fromStoreId: string
+  fromStoreName: string
+  toStoreId: string
+  toStoreName: string
+  items: TransferItem[]
+  totalAmount: number
+  expectedArrivalTime?: string
+  actualOutboundTime?: string
+  actualInboundTime?: string
+  reason: string
+  status: TransferStatus
+  rejectReason?: string
+  statusLogs: TransferStatusLog[]
+  createdAt: string
+  createdBy: string
+  operator?: string
+}
+
 export interface Store {
   id: string
   name: string
@@ -108,6 +158,7 @@ export interface Database {
   orders: Order[]
   stocks: StoreStock[]
   stockRecords: StockRecord[]
+  transfers: Transfer[]
 }
 
 export interface ApiResponse<T = any> {

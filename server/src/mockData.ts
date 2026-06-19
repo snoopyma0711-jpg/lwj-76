@@ -1,5 +1,5 @@
-import type { Database, Store, Product, Order, StoreStock, StockRecord, OrderItem, ContactRecord, OrderStatusLog, OrderStatus } from './types'
-import { formatDate } from './utils'
+import type { Database, Store, Product, Order, StoreStock, StockRecord, OrderItem, ContactRecord, OrderStatusLog, OrderStatus, Transfer, TransferStatus, TransferType, TransferStatusLog, TransferItem } from './types'
+import { formatDate, generateTransferNo } from './utils'
 
 const storeList = [
   { id: 'store-001', name: '朝阳大悦城店', address: '北京市朝阳区朝阳北路101号大悦城B1层', manager: '张店长', phone: '010-85551234' },
@@ -249,6 +249,167 @@ function generateMockOrders(stores: Store[], products: Product[]): Order[] {
   return orders
 }
 
+function generateMockTransfers(stores: Store[], products: Product[]): Transfer[] {
+  const transfers: Transfer[] = []
+  const staffNames = ['小李', '小王', '小张', '小陈', '小赵', '小刘']
+  const statuses: TransferStatus[] = ['pending', 'approved', 'outbound', 'in_transit', 'inbound', 'completed', 'rejected']
+  const reasons = [
+    '库存预警，急需补货',
+    '促销活动备货',
+    '门店间库存调配',
+    '新品上架首批补货',
+    '季节性商品调整',
+    '大促活动前备货',
+  ]
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+
+  for (let idx = 1; idx <= 28; idx++) {
+    const daysAgo = rand(0, 14)
+    const createDate = new Date()
+    createDate.setDate(createDate.getDate() - daysAgo)
+    createDate.setHours(rand(8, 20), rand(0, 59), rand(0, 59), 0)
+
+    const type: TransferType = Math.random() > 0.5 ? 'replenish' : 'transfer'
+    const toStore = pick(stores)
+    const fromStore = type === 'transfer' ? pick(stores.filter((s) => s.id !== toStore.id)) : stores[0]
+    const fromStoreId = type === 'transfer' ? fromStore.id : 'hq-warehouse'
+    const fromStoreName = type === 'transfer' ? fromStore.name : '总部仓库'
+
+    const itemCount = rand(1, 5)
+    const pickedProducts = new Set<string>()
+    const items: TransferItem[] = []
+    for (let i = 0; i < itemCount; i++) {
+      const product = pick(products)
+      if (pickedProducts.has(product.id)) continue
+      pickedProducts.add(product.id)
+      const qty = rand(2, 20)
+      items.push({
+        productId: product.id,
+        productName: product.name,
+        sku: product.sku,
+        quantity: qty,
+        unitPrice: product.price,
+      })
+    }
+    let total = 0
+    items.forEach((it) => (total += it.unitPrice * it.quantity))
+
+    let status: TransferStatus = pick(statuses)
+    if (daysAgo === 0) {
+      const hr = createDate.getHours()
+      if (hr > d.getHours()) {
+        status = pick(['pending', 'approved'] as TransferStatus[])
+      }
+    }
+    if (status === 'rejected' && type === 'replenish') {
+      status = 'pending'
+    }
+
+    const expectedDate = new Date(createDate)
+    expectedDate.setHours(expectedDate.getHours() + rand(6, 72))
+
+    const statusLogs: TransferStatusLog[] = [
+      {
+        id: `tlog-${idx}-0`,
+        status: 'pending',
+        time: formatDate(createDate),
+        operator: pick(staffNames),
+        remark: pick(reasons),
+      },
+    ]
+
+    const actualItems = items.map((it) => ({ ...it }))
+
+    if (status !== 'pending' && status !== 'rejected') {
+      const approvedTime = new Date(createDate)
+      approvedTime.setMinutes(approvedTime.getMinutes() + rand(15, 120))
+      statusLogs.push({
+        id: `tlog-${idx}-1`,
+        status: 'approved',
+        time: formatDate(approvedTime),
+        operator: pick(staffNames),
+        remark: '已审批通过，请尽快安排出库',
+      })
+
+      if (['outbound', 'in_transit', 'inbound', 'completed'].includes(status)) {
+        const outboundTime = new Date(approvedTime)
+        outboundTime.setHours(outboundTime.getHours() + rand(1, 8))
+        statusLogs.push({
+          id: `tlog-${idx}-2`,
+          status: 'outbound',
+          time: formatDate(outboundTime),
+          operator: pick(staffNames),
+          remark: '商品已出库，正在安排运输',
+        })
+        actualItems.forEach((it) => (it.actualOutboundQuantity = it.quantity))
+
+        if (['in_transit', 'inbound', 'completed'].includes(status)) {
+          const transitTime = new Date(outboundTime)
+          transitTime.setHours(transitTime.getHours() + rand(1, 24))
+          statusLogs.push({
+            id: `tlog-${idx}-3`,
+            status: 'in_transit',
+            time: formatDate(transitTime),
+            operator: pick(staffNames),
+            remark: '商品运输中',
+          })
+
+          if (['inbound', 'completed'].includes(status)) {
+            const inboundTime = new Date(transitTime)
+            inboundTime.setHours(inboundTime.getHours() + rand(2, 48))
+            statusLogs.push({
+              id: `tlog-${idx}-4`,
+              status: 'completed',
+              time: formatDate(inboundTime),
+              operator: pick(staffNames),
+              remark: '已确认入库，调拨完成',
+            })
+            actualItems.forEach((it) => (it.actualInboundQuantity = it.actualOutboundQuantity))
+          }
+        }
+      }
+    }
+
+    if (status === 'rejected') {
+      statusLogs.push({
+        id: `tlog-${idx}-r`,
+        status: 'rejected',
+        time: formatDate(createDate),
+        operator: pick(staffNames),
+        remark: '库存充足，暂不需要调拨/补货',
+      })
+    }
+
+    transfers.push({
+      id: `transfer-${String(idx).padStart(5, '0')}`,
+      transferNo: `TR${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${String(idx).padStart(4, '0')}`,
+      type,
+      fromStoreId,
+      fromStoreName,
+      toStoreId: toStore.id,
+      toStoreName: toStore.name,
+      items: actualItems,
+      totalAmount: Math.round(total * 100) / 100,
+      expectedArrivalTime: formatDate(expectedDate),
+      actualOutboundTime: actualItems.some((it) => it.actualOutboundQuantity !== undefined)
+        ? formatDate(expectedDate)
+        : undefined,
+      actualInboundTime: actualItems.some((it) => it.actualInboundQuantity !== undefined)
+        ? formatDate(expectedDate)
+        : undefined,
+      reason: pick(reasons),
+      status: status === 'inbound' ? 'in_transit' : status,
+      rejectReason: status === 'rejected' ? '库存充足，暂不需要调拨/补货' : undefined,
+      statusLogs,
+      createdAt: formatDate(createDate),
+      createdBy: pick(staffNames),
+      operator: pick(staffNames),
+    })
+  }
+  return transfers
+}
+
 export function createMockDatabase(): Database {
   const stores: Store[] = storeList as Store[]
   const products: Product[] = productList as Product[]
@@ -296,5 +457,7 @@ export function createMockDatabase(): Database {
     })
   }
 
-  return { stores, products, orders, stocks, stockRecords }
+  const transfers: Transfer[] = generateMockTransfers(stores, products)
+
+  return { stores, products, orders, stocks, stockRecords, transfers }
 }

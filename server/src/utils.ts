@@ -33,3 +33,20 @@ export function generateOrderNo(orderCount: number): string {
   const seq = String(orderCount + 1).padStart(4, '0')
   return `TP${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${seq}`
 }
+
+export function generateTransferNo(transferCount: number): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const seq = String(transferCount + 1).padStart(4, '0')
+  return `TR${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${seq}`
+}
+
+export const transferStatusMap: Record<string, { label: string; color: string; bgColor: string }> = {
+  pending: { label: '待处理', color: 'text-amber-700', bgColor: 'bg-amber-50 border-amber-200' },
+  approved: { label: '待出库', color: 'text-blue-700', bgColor: 'bg-blue-50 border-blue-200' },
+  outbound: { label: '已出库', color: 'text-cyan-700', bgColor: 'bg-cyan-50 border-cyan-200' },
+  in_transit: { label: '运输中', color: 'text-indigo-700', bgColor: 'bg-indigo-50 border-indigo-200' },
+  inbound: { label: '待入库', color: 'text-orange-700', bgColor: 'bg-orange-50 border-orange-200' },
+  completed: { label: '已完成', color: 'text-green-700', bgColor: 'bg-green-50 border-green-200' },
+  rejected: { label: '已拒绝', color: 'text-red-700', bgColor: 'bg-red-50 border-red-200' },
+}
