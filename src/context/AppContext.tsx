@@ -264,24 +264,24 @@ interface AppContextValue {
   approvePurchase: (params: {
     purchase: Purchase
     remark?: string
-  }) => Promise<{ success: boolean; message: string }>
+  }) => Promise<{ success: boolean; message: string; data?: Purchase }>
   rejectPurchase: (params: {
     purchase: Purchase
     reason: string
-  }) => Promise<{ success: boolean; message: string }>
+  }) => Promise<{ success: boolean; message: string; data?: Purchase }>
   placePurchaseOrder: (params: {
     purchase: Purchase
     remark?: string
-  }) => Promise<{ success: boolean; message: string }>
+  }) => Promise<{ success: boolean; message: string; data?: Purchase }>
   receivePurchaseItem: (params: {
     purchase: Purchase
     items: { purchaseItemId: string; quantity: number; differenceReason?: string }[]
     remark?: string
-  }) => Promise<{ success: boolean; message: string }>
+  }) => Promise<{ success: boolean; message: string; data?: Purchase }>
   cancelPurchase: (params: {
     purchase: Purchase
     reason: string
-  }) => Promise<{ success: boolean; message: string }>
+  }) => Promise<{ success: boolean; message: string; data?: Purchase }>
 }
 
 const AppContext = createContext<AppContextValue | undefined>(undefined)
@@ -958,8 +958,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const approvePurchase: AppContextValue['approvePurchase'] = async ({ purchase, remark }) => {
     const res = await api.approvePurchase(purchase.id, { remark })
     if (res.success) {
-      await refreshPurchases()
-      return { success: true, message: res.message }
+      if (res.data) {
+        dispatch({ type: 'UPDATE_PURCHASE', payload: res.data })
+      } else {
+        await refreshPurchases()
+      }
+      return { success: true, message: res.message, data: res.data }
     }
     return { success: false, message: res.message }
   }
@@ -967,8 +971,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const rejectPurchase: AppContextValue['rejectPurchase'] = async ({ purchase, reason }) => {
     const res = await api.rejectPurchase(purchase.id, { reason })
     if (res.success) {
-      await refreshPurchases()
-      return { success: true, message: res.message }
+      if (res.data) {
+        dispatch({ type: 'UPDATE_PURCHASE', payload: res.data })
+      } else {
+        await refreshPurchases()
+      }
+      return { success: true, message: res.message, data: res.data }
     }
     return { success: false, message: res.message }
   }
@@ -976,8 +984,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const placePurchaseOrder: AppContextValue['placePurchaseOrder'] = async ({ purchase, remark }) => {
     const res = await api.placePurchaseOrder(purchase.id, { remark })
     if (res.success) {
-      await refreshPurchases()
-      return { success: true, message: res.message }
+      if (res.data) {
+        dispatch({ type: 'UPDATE_PURCHASE', payload: res.data })
+      } else {
+        await refreshPurchases()
+      }
+      return { success: true, message: res.message, data: res.data }
     }
     return { success: false, message: res.message }
   }
@@ -989,8 +1001,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }) => {
     const res = await api.receivePurchaseItem(purchase.id, { items, remark })
     if (res.success) {
-      await Promise.all([refreshPurchases(), refreshStocksAndRecords()])
-      return { success: true, message: res.message }
+      if (res.data) {
+        dispatch({ type: 'UPDATE_PURCHASE', payload: res.data })
+      }
+      await refreshStocksAndRecords()
+      if (!res.data) {
+        await refreshPurchases()
+      }
+      return { success: true, message: res.message, data: res.data }
     }
     return { success: false, message: res.message }
   }
@@ -998,8 +1016,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const cancelPurchase: AppContextValue['cancelPurchase'] = async ({ purchase, reason }) => {
     const res = await api.cancelPurchase(purchase.id, { reason })
     if (res.success) {
-      await refreshPurchases()
-      return { success: true, message: res.message }
+      if (res.data) {
+        dispatch({ type: 'UPDATE_PURCHASE', payload: res.data })
+      } else {
+        await refreshPurchases()
+      }
+      return { success: true, message: res.message, data: res.data }
     }
     return { success: false, message: res.message }
   }

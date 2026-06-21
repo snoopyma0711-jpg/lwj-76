@@ -1084,7 +1084,7 @@ export function approvePurchase(params: {
   purchaseId: string
   remark?: string
   operator?: string
-}): { success: boolean; message: string } {
+}): { success: boolean; message: string; data?: Purchase } {
   const purchase = db.purchases.find((p) => p.id === params.purchaseId)
   if (!purchase) return { success: false, message: '采购单不存在' }
   if (purchase.status !== 'pending_approval') {
@@ -1092,7 +1092,7 @@ export function approvePurchase(params: {
   }
   const time = nowStr()
   const idx = db.purchases.findIndex((p) => p.id === params.purchaseId)
-  db.purchases[idx] = {
+  const updated: Purchase = {
     ...purchase,
     status: 'approved',
     statusLogs: [
@@ -1106,14 +1106,15 @@ export function approvePurchase(params: {
       },
     ],
   }
-  return { success: true, message: '审批通过' }
+  db.purchases[idx] = updated
+  return { success: true, message: '审批通过', data: updated }
 }
 
 export function rejectPurchase(params: {
   purchaseId: string
   reason: string
   operator?: string
-}): { success: boolean; message: string } {
+}): { success: boolean; message: string; data?: Purchase } {
   const purchase = db.purchases.find((p) => p.id === params.purchaseId)
   if (!purchase) return { success: false, message: '采购单不存在' }
   if (purchase.status !== 'pending_approval') {
@@ -1123,7 +1124,7 @@ export function rejectPurchase(params: {
   if (params.reason.length > 500) return { success: false, message: '拒绝原因不能超过500字' }
   const time = nowStr()
   const idx = db.purchases.findIndex((p) => p.id === params.purchaseId)
-  db.purchases[idx] = {
+  const updated: Purchase = {
     ...purchase,
     status: 'cancelled',
     rejectReason: params.reason.trim(),
@@ -1138,14 +1139,15 @@ export function rejectPurchase(params: {
       },
     ],
   }
-  return { success: true, message: '已拒绝采购申请' }
+  db.purchases[idx] = updated
+  return { success: true, message: '已拒绝采购申请', data: updated }
 }
 
 export function placePurchaseOrder(params: {
   purchaseId: string
   remark?: string
   operator?: string
-}): { success: boolean; message: string } {
+}): { success: boolean; message: string; data?: Purchase } {
   const purchase = db.purchases.find((p) => p.id === params.purchaseId)
   if (!purchase) return { success: false, message: '采购单不存在' }
   if (!['approved', 'pending_order'].includes(purchase.status)) {
@@ -1153,7 +1155,7 @@ export function placePurchaseOrder(params: {
   }
   const time = nowStr()
   const idx = db.purchases.findIndex((p) => p.id === params.purchaseId)
-  db.purchases[idx] = {
+  const updated: Purchase = {
     ...purchase,
     status: 'ordered',
     statusLogs: [
@@ -1167,7 +1169,8 @@ export function placePurchaseOrder(params: {
       },
     ],
   }
-  return { success: true, message: '下单成功' }
+  db.purchases[idx] = updated
+  return { success: true, message: '下单成功', data: updated }
 }
 
 export function receivePurchaseItem(params: {
@@ -1175,7 +1178,7 @@ export function receivePurchaseItem(params: {
   items: { purchaseItemId: string; quantity: number; differenceReason?: string }[]
   remark?: string
   operator?: string
-}): { success: boolean; message: string } {
+}): { success: boolean; message: string; data?: Purchase } {
   const purchase = db.purchases.find((p) => p.id === params.purchaseId)
   if (!purchase) return { success: false, message: '采购单不存在' }
   if (!['ordered', 'pending_arrival', 'partial_arrival'].includes(purchase.status)) {
@@ -1259,7 +1262,7 @@ export function receivePurchaseItem(params: {
   const newStatus: PurchaseStatus = allReceived ? 'completed' : 'partial_arrival'
 
   const idx = db.purchases.findIndex((p) => p.id === params.purchaseId)
-  db.purchases[idx] = {
+  const updated: Purchase = {
     ...purchase,
     items: updatedItems,
     receiveItems: [...newReceiveItems, ...purchase.receiveItems],
@@ -1276,14 +1279,15 @@ export function receivePurchaseItem(params: {
       },
     ],
   }
-  return { success: true, message: '收货入库成功' }
+  db.purchases[idx] = updated
+  return { success: true, message: '收货入库成功', data: updated }
 }
 
 export function cancelPurchase(params: {
   purchaseId: string
   reason: string
   operator?: string
-}): { success: boolean; message: string } {
+}): { success: boolean; message: string; data?: Purchase } {
   const purchase = db.purchases.find((p) => p.id === params.purchaseId)
   if (!purchase) return { success: false, message: '采购单不存在' }
   if (['completed', 'cancelled'].includes(purchase.status)) {
@@ -1296,7 +1300,7 @@ export function cancelPurchase(params: {
   if (params.reason.length > 500) return { success: false, message: '取消原因不能超过500字' }
   const time = nowStr()
   const idx = db.purchases.findIndex((p) => p.id === params.purchaseId)
-  db.purchases[idx] = {
+  const updated: Purchase = {
     ...purchase,
     status: 'cancelled',
     cancelReason: params.reason.trim(),
@@ -1311,5 +1315,6 @@ export function cancelPurchase(params: {
       },
     ],
   }
-  return { success: true, message: '采购单已取消' }
+  db.purchases[idx] = updated
+  return { success: true, message: '采购单已取消', data: updated }
 }

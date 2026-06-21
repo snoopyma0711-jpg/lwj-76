@@ -401,7 +401,7 @@ app.put('/api/purchases/:id/approve', (req, res) => {
     remark,
     operator: getOperator(req),
   })
-  if (result.success) ok(res, null, result.message)
+  if (result.success) ok(res, result.data, result.message)
   else fail(res, result.message)
 })
 
@@ -412,7 +412,7 @@ app.put('/api/purchases/:id/reject', (req, res) => {
     reason: reason || '',
     operator: getOperator(req),
   })
-  if (result.success) ok(res, null, result.message)
+  if (result.success) ok(res, result.data, result.message)
   else fail(res, result.message)
 })
 
@@ -423,7 +423,7 @@ app.put('/api/purchases/:id/place-order', (req, res) => {
     remark,
     operator: getOperator(req),
   })
-  if (result.success) ok(res, null, result.message)
+  if (result.success) ok(res, result.data, result.message)
   else fail(res, result.message)
 })
 
@@ -436,7 +436,7 @@ app.post('/api/purchases/:id/receive', (req, res) => {
       remark,
       operator: getOperator(req),
     })
-    if (result.success) ok(res, null, result.message)
+    if (result.success) ok(res, result.data, result.message)
     else fail(res, result.message)
   } catch (err: any) {
     fail(res, err?.message || '收货失败')
@@ -450,7 +450,7 @@ app.put('/api/purchases/:id/cancel', (req, res) => {
     reason: reason || '',
     operator: getOperator(req),
   })
-  if (result.success) ok(res, null, result.message)
+  if (result.success) ok(res, result.data, result.message)
   else fail(res, result.message)
 })
 

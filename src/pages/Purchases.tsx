@@ -125,9 +125,11 @@ export default function Purchases() {
     if (res.success) {
       showToast(res.message, 'success')
       setShowApproveModal(false)
-      await refreshPurchases()
-      const updated = state.purchases.find((p) => p.id === selectedPurchase.id)
-      if (updated) setSelectedPurchase(updated)
+      if (res.data) {
+        setSelectedPurchase(res.data)
+      } else {
+        await refreshPurchases()
+      }
     } else {
       showToast(res.message, 'error')
     }
@@ -139,9 +141,11 @@ export default function Purchases() {
     if (res.success) {
       showToast(res.message, 'success')
       setShowRejectModal(false)
-      await refreshPurchases()
-      const updated = state.purchases.find((p) => p.id === selectedPurchase.id)
-      if (updated) setSelectedPurchase(updated)
+      if (res.data) {
+        setSelectedPurchase(res.data)
+      } else {
+        await refreshPurchases()
+      }
     } else {
       showToast(res.message, 'error')
     }
@@ -152,9 +156,11 @@ export default function Purchases() {
     const res = await placePurchaseOrder({ purchase: selectedPurchase, remark })
     if (res.success) {
       showToast(res.message, 'success')
-      await refreshPurchases()
-      const updated = state.purchases.find((p) => p.id === selectedPurchase.id)
-      if (updated) setSelectedPurchase(updated)
+      if (res.data) {
+        setSelectedPurchase(res.data)
+      } else {
+        await refreshPurchases()
+      }
     } else {
       showToast(res.message, 'error')
     }
@@ -166,9 +172,11 @@ export default function Purchases() {
     if (res.success) {
       showToast(res.message, 'success')
       setShowReceiveModal(false)
-      await refreshPurchases()
-      const updated = state.purchases.find((p) => p.id === selectedPurchase.id)
-      if (updated) setSelectedPurchase(updated)
+      if (res.data) {
+        setSelectedPurchase(res.data)
+      } else {
+        await refreshPurchases()
+      }
     } else {
       showToast(res.message, 'error')
     }
@@ -180,9 +188,11 @@ export default function Purchases() {
     if (res.success) {
       showToast(res.message, 'success')
       setShowCancelModal(false)
-      await refreshPurchases()
-      const updated = state.purchases.find((p) => p.id === selectedPurchase.id)
-      if (updated) setSelectedPurchase(updated)
+      if (res.data) {
+        setSelectedPurchase(res.data)
+      } else {
+        await refreshPurchases()
+      }
     } else {
       showToast(res.message, 'error')
     }
