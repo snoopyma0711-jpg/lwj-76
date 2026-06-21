@@ -1,4 +1,4 @@
-import type { Order, OrderStatus, Store, Product, StoreStock, StockRecord, Transfer, TransferType, TransferStatus, Supplier, Purchase, PurchaseStatus } from '../types'
+import type { Order, OrderStatus, Store, Product, StoreStock, StockRecord, Transfer, TransferType, TransferStatus, Supplier, Purchase, PurchaseStatus, PaymentRecord, PaymentMethod } from '../types'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api'
 const OPERATOR_NAME = '张店长'
@@ -260,8 +260,37 @@ export const api = {
     method: 'POST',
     body: JSON.stringify(data),
   }),
-  cancelPurchase: (purchaseId: string, data: { reason: string }) => request(`/purchases/${purchaseId}/cancel`, {
+  cancelPurchase: (purchaseId: string, data: { reason: string }) => request<Purchase>(`/purchases/${purchaseId}/cancel`, {
     method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  reconcilePurchase: (purchaseId: string, data?: { remark?: string }) => request<Purchase>(`/purchases/${purchaseId}/reconcile`, {
+    method: 'PUT',
+    body: JSON.stringify(data || {}),
+  }),
+
+  getPaymentRecords: (params?: {
+    purchaseId?: string
+    supplierId?: string
+    startDate?: string
+    endDate?: string
+  }) => {
+    const qs = new URLSearchParams()
+    if (params?.purchaseId) qs.set('purchaseId', params.purchaseId)
+    if (params?.supplierId) qs.set('supplierId', params.supplierId)
+    if (params?.startDate) qs.set('startDate', params.startDate)
+    if (params?.endDate) qs.set('endDate', params.endDate)
+    return request<PaymentRecord[]>(`/payment-records${qs.toString() ? '?' + qs.toString() : ''}`)
+  },
+
+  createPaymentRecord: (purchaseId: string, data: {
+    amount: number
+    paymentTime: string
+    paymentMethod: PaymentMethod
+    remark?: string
+  }) => request<{ payment: PaymentRecord; purchase: Purchase }>(`/purchases/${purchaseId}/payment`, {
+    method: 'POST',
     body: JSON.stringify(data),
   }),
 }

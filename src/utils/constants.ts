@@ -1,4 +1,4 @@
-import type { OrderStatus, TransferStatus, TransferType, PurchaseStatus } from '../types'
+import type { OrderStatus, TransferStatus, TransferType, PurchaseStatus, ReconciliationStatus, PaymentStatus, PaymentMethod } from '../types'
 
 export const transferTypeMap: Record<TransferType, { label: string; color: string; bgColor: string }> = {
   replenish: { label: '补货申请', color: 'text-blue-700', bgColor: 'bg-blue-50 border-blue-200' },
@@ -89,4 +89,23 @@ export function getTimeString(d: Date | string): string {
 export function isOverdue(scheduledTime: string, status: string): boolean {
   if (['picked_up', 'failed', 'cancelled', 'partial'].includes(status)) return false
   return new Date(scheduledTime).getTime() < Date.now()
+}
+
+export const reconciliationStatusMap: Record<ReconciliationStatus, { label: string; color: string; bgColor: string }> = {
+  pending_reconciliation: { label: '待对账', color: 'text-amber-700', bgColor: 'bg-amber-50 border-amber-200' },
+  reconciled: { label: '已对账', color: 'text-blue-700', bgColor: 'bg-blue-50 border-blue-200' },
+}
+
+export const paymentStatusMap: Record<PaymentStatus, { label: string; color: string; bgColor: string }> = {
+  pending_payment: { label: '待付款', color: 'text-amber-700', bgColor: 'bg-amber-50 border-amber-200' },
+  partial_payment: { label: '部分付款', color: 'text-orange-700', bgColor: 'bg-orange-50 border-orange-200' },
+  paid: { label: '已付款', color: 'text-green-700', bgColor: 'bg-green-50 border-green-200' },
+}
+
+export const paymentMethodMap: Record<PaymentMethod, string> = {
+  bank_transfer: '银行转账',
+  alipay: '支付宝',
+  wechat: '微信支付',
+  cash: '现金',
+  other: '其他',
 }

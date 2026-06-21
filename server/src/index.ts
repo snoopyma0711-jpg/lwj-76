@@ -454,6 +454,42 @@ app.put('/api/purchases/:id/cancel', (req, res) => {
   else fail(res, result.message)
 })
 
+app.put('/api/purchases/:id/reconcile', (req, res) => {
+  const { remark } = req.body || {}
+  const result = db.reconcilePurchase({
+    purchaseId: req.params.id,
+    remark,
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, result.data, result.message)
+  else fail(res, result.message)
+})
+
+app.get('/api/payment-records', (req, res) => {
+  const { purchaseId, supplierId, startDate, endDate } = req.query
+  const records = db.getPaymentRecords({
+    purchaseId: purchaseId as string,
+    supplierId: supplierId as string,
+    startDate: startDate as string,
+    endDate: endDate as string,
+  })
+  ok(res, records)
+})
+
+app.post('/api/purchases/:id/payment', (req, res) => {
+  const { amount, paymentTime, paymentMethod, remark } = req.body || {}
+  const result = db.createPaymentRecord({
+    purchaseId: req.params.id,
+    amount: parseFloat(amount),
+    paymentTime,
+    paymentMethod,
+    remark,
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, result.data, result.message)
+  else fail(res, result.message)
+})
+
 app.use((_req, res) => {
   fail(res, '接口不存在', 404)
 })

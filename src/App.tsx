@@ -8,6 +8,7 @@ import Transfers from './pages/Transfers'
 import Warnings from './pages/Warnings'
 import Stores from './pages/Stores'
 import Purchases from './pages/Purchases'
+import PaymentReconciliation from './pages/PaymentReconciliation'
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="/inventory" element={<Inventory />} />
         <Route path="/transfers" element={<Transfers />} />
         <Route path="/purchases" element={<Purchases />} />
+        <Route path="/payment-reconciliation" element={<PaymentReconciliation />} />
         <Route path="/warnings" element={<Warnings />} />
         <Route path="/stores" element={<Stores />} />
         <Route path="*" element={<Dashboard />} />

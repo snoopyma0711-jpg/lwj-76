@@ -9,6 +9,7 @@ import {
   Store,
   ArrowRightLeft,
   ShoppingCart,
+  Receipt,
 } from 'lucide-react'
 
 const navItems = [
@@ -18,6 +19,7 @@ const navItems = [
   { path: '/inventory', label: '库存管理', icon: Package },
   { path: '/transfers', label: '调拨补货', icon: ArrowRightLeft },
   { path: '/purchases', label: '采购管理', icon: ShoppingCart },
+  { path: '/payment-reconciliation', label: '对账付款', icon: Receipt },
   { path: '/warnings', label: '库存预警', icon: AlertTriangle },
   { path: '/stores', label: '门店信息', icon: Store },
 ]

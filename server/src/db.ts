@@ -1,4 +1,4 @@
-import type { Database, Order, OrderStatus, OrderItem, StoreStock, StockRecord, Transfer, TransferType, TransferStatus, TransferItem, Supplier, Purchase, PurchaseStatus, PurchaseItem, PurchaseReceiveItem } from './types'
+import type { Database, Order, OrderStatus, OrderItem, StoreStock, StockRecord, Transfer, TransferType, TransferStatus, TransferItem, Supplier, Purchase, PurchaseStatus, PurchaseItem, PurchaseReceiveItem, PaymentRecord, PaymentMethod, ReconciliationStatus, PaymentStatus } from './types'
 import { createMockDatabase } from './mockData'
 import { nowStr, generateOrderNo, isValidPhone, orderStatusMap, generateTransferNo, transferStatusMap, generatePurchaseNo, purchaseStatusMap } from './utils'
 import { v4 as uuidv4 } from 'uuid'
@@ -1317,4 +1317,147 @@ export function cancelPurchase(params: {
   }
   db.purchases[idx] = updated
   return { success: true, message: '采购单已取消', data: updated }
+}
+
+export function getPaymentRecords(params?: {
+  purchaseId?: string
+  supplierId?: string
+  startDate?: string
+  endDate?: string
+}) {
+  let list = db.paymentRecords.slice()
+  if (params?.purchaseId) list = list.filter((r) => r.purchaseId === params.purchaseId)
+  if (params?.supplierId) {
+    const purchaseIds = db.purchases
+      .filter((p) => p.supplierId === params.supplierId)
+      .map((p) => p.id)
+    list = list.filter((r) => purchaseIds.includes(r.purchaseId))
+  }
+  if (params?.startDate) list = list.filter((r) => r.paymentTime.slice(0, 10) >= params.startDate!)
+  if (params?.endDate) list = list.filter((r) => r.paymentTime.slice(0, 10) <= params.endDate!)
+  return list.sort((a, b) => (a.paymentTime < b.paymentTime ? 1 : -1))
+}
+
+export function reconcilePurchase(params: {
+  purchaseId: string
+  operator?: string
+  remark?: string
+}): { success: boolean; message: string; data?: Purchase } {
+  const purchase = db.purchases.find((p) => p.id === params.purchaseId)
+  if (!purchase) return { success: false, message: '采购单不存在' }
+  if (purchase.status !== 'completed') {
+    return { success: false, message: '只有已完成收货的采购单才能对账' }
+  }
+  if (purchase.reconciliationStatus === 'reconciled') {
+    return { success: false, message: '该采购单已对账，无需重复对账' }
+  }
+
+  const time = nowStr()
+  const idx = db.purchases.findIndex((p) => p.id === params.purchaseId)
+  const updated: Purchase = {
+    ...purchase,
+    reconciliationStatus: 'reconciled',
+    reconciliationTime: time,
+    statusLogs: [
+      ...purchase.statusLogs,
+      {
+        id: uuidv4(),
+        status: purchase.status,
+        time,
+        operator: params.operator || '系统',
+        remark: params.remark || '对账完成，等待付款',
+      },
+    ],
+  }
+  db.purchases[idx] = updated
+  return { success: true, message: '对账完成', data: updated }
+}
+
+export function createPaymentRecord(params: {
+  purchaseId: string
+  amount: number
+  paymentTime: string
+  paymentMethod: PaymentMethod
+  operator?: string
+  remark?: string
+}): { success: boolean; message: string; data?: { payment: PaymentRecord; purchase: Purchase } } {
+  const purchase = db.purchases.find((p) => p.id === params.purchaseId)
+  if (!purchase) return { success: false, message: '采购单不存在' }
+  if (purchase.reconciliationStatus !== 'reconciled') {
+    return { success: false, message: '请先完成对账再登记付款' }
+  }
+  if (purchase.paymentStatus === 'paid') {
+    return { success: false, message: '该采购单已全额付款，无需再付款' }
+  }
+
+  if (!params.amount || params.amount <= 0) {
+    return { success: false, message: '付款金额必须大于0' }
+  }
+  if (isNaN(params.amount)) {
+    return { success: false, message: '付款金额格式不正确' }
+  }
+
+  const remainingAmount = Math.round((purchase.totalAmount - purchase.paidAmount) * 100) / 100
+  if (params.amount > remainingAmount + 0.01) {
+    return { success: false, message: `付款金额不能超过待付款金额 ${remainingAmount.toFixed(2)} 元` }
+  }
+  if (params.amount > purchase.totalAmount * 1.1) {
+    return { success: false, message: '付款金额明显不合理，已超过采购总额的110%' }
+  }
+
+  if (!params.paymentTime) {
+    return { success: false, message: '请选择付款时间' }
+  }
+  if (!params.paymentMethod) {
+    return { success: false, message: '请选择付款方式' }
+  }
+
+  const validMethods: PaymentMethod[] = ['bank_transfer', 'alipay', 'wechat', 'cash', 'other']
+  if (!validMethods.includes(params.paymentMethod)) {
+    return { success: false, message: '付款方式不正确' }
+  }
+
+  if (params.remark && params.remark.length > 500) {
+    return { success: false, message: '备注不能超过500字' }
+  }
+
+  const time = nowStr()
+  const newPaidAmount = Math.round((purchase.paidAmount + params.amount) * 100) / 100
+  const newPaymentStatus: PaymentStatus = 
+    newPaidAmount >= purchase.totalAmount - 0.01 ? 'paid' : 'partial_payment'
+
+  const paymentRecord: PaymentRecord = {
+    id: uuidv4(),
+    purchaseId: purchase.id,
+    purchaseNo: purchase.purchaseNo,
+    amount: Math.round(params.amount * 100) / 100,
+    paymentTime: params.paymentTime,
+    paymentMethod: params.paymentMethod,
+    operator: params.operator || '系统',
+    remark: params.remark?.trim() || undefined,
+  }
+
+  db.paymentRecords.unshift(paymentRecord)
+
+  const updated: Purchase = {
+    ...purchase,
+    paidAmount: newPaidAmount,
+    paymentStatus: newPaymentStatus,
+    paymentRecords: [paymentRecord, ...purchase.paymentRecords],
+    statusLogs: [
+      ...purchase.statusLogs,
+      {
+        id: uuidv4(),
+        status: purchase.status,
+        time,
+        operator: params.operator || '系统',
+        remark: `登记付款 ${params.amount.toFixed(2)} 元，${newPaymentStatus === 'paid' ? '已全额付款' : `已付款 ${newPaidAmount.toFixed(2)} / ${purchase.totalAmount.toFixed(2)} 元`}`,
+      },
+    ],
+  }
+
+  const idx = db.purchases.findIndex((p) => p.id === params.purchaseId)
+  db.purchases[idx] = updated
+
+  return { success: true, message: '付款登记成功', data: { payment: paymentRecord, purchase: updated } }
 }

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, ReactNode, useEffect } from 'react'
-import type { AppState, AppAction, Order, StoreStock, StockRecord, Product, Transfer, TransferType, TransferStatus, TransferItem, Purchase, PurchaseStatus, Supplier } from '../types'
+import type { AppState, AppAction, Order, StoreStock, StockRecord, Product, Transfer, TransferType, TransferStatus, TransferItem, Purchase, PurchaseStatus, Supplier, PaymentRecord, PaymentMethod } from '../types'
 import { mockStores, mockProducts, mockOrders, mockStocks, mockStockRecords, mockTransfers } from '../data/mockData'
 import { orderStatusMap } from '../utils/constants'
 import { api } from '../services/api'
@@ -282,6 +282,17 @@ interface AppContextValue {
     purchase: Purchase
     reason: string
   }) => Promise<{ success: boolean; message: string; data?: Purchase }>
+  reconcilePurchase: (params: {
+    purchase: Purchase
+    remark?: string
+  }) => Promise<{ success: boolean; message: string; data?: Purchase }>
+  createPaymentRecord: (params: {
+    purchase: Purchase
+    amount: number
+    paymentTime: string
+    paymentMethod: PaymentMethod
+    remark?: string
+  }) => Promise<{ success: boolean; message: string; data?: { payment: PaymentRecord; purchase: Purchase } }>
 }
 
 const AppContext = createContext<AppContextValue | undefined>(undefined)
@@ -1026,6 +1037,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return { success: false, message: res.message }
   }
 
+  const reconcilePurchase: AppContextValue['reconcilePurchase'] = async ({ purchase, remark }) => {
+    const res = await api.reconcilePurchase(purchase.id, { remark })
+    if (res.success) {
+      if (res.data) {
+        dispatch({ type: 'UPDATE_PURCHASE', payload: res.data })
+      } else {
+        await refreshPurchases()
+      }
+      return { success: true, message: res.message, data: res.data }
+    }
+    return { success: false, message: res.message }
+  }
+
+  const createPaymentRecord: AppContextValue['createPaymentRecord'] = async ({ purchase, amount, paymentTime, paymentMethod, remark }) => {
+    const res = await api.createPaymentRecord(purchase.id, { amount, paymentTime, paymentMethod, remark })
+    if (res.success && res.data) {
+      dispatch({ type: 'UPDATE_PURCHASE', payload: res.data.purchase })
+      return { success: true, message: res.message, data: res.data }
+    }
+    return { success: false, message: res.message }
+  }
+
   return (
     <AppContext.Provider
       value={{
@@ -1059,6 +1092,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         placePurchaseOrder,
         receivePurchaseItem,
         cancelPurchase,
+        reconcilePurchase,
+        createPaymentRecord,
       }}
     >
       {children}

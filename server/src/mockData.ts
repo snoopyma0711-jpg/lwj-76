@@ -1,4 +1,4 @@
-import type { Database, Store, Product, Order, StoreStock, StockRecord, OrderItem, ContactRecord, OrderStatusLog, OrderStatus, Transfer, TransferStatus, TransferType, TransferStatusLog, TransferItem, Supplier, Purchase, PurchaseStatus, PurchaseItem, PurchaseReceiveItem, PurchaseStatusLog } from './types'
+import type { Database, Store, Product, Order, StoreStock, StockRecord, OrderItem, ContactRecord, OrderStatusLog, OrderStatus, Transfer, TransferStatus, TransferType, TransferStatusLog, TransferItem, Supplier, Purchase, PurchaseStatus, PurchaseItem, PurchaseReceiveItem, PurchaseStatusLog, PaymentRecord, ReconciliationStatus, PaymentStatus, PaymentMethod } from './types'
 import { formatDate, generateTransferNo, generatePurchaseNo } from './utils'
 
 const storeList = [
@@ -419,10 +419,12 @@ const supplierList: Supplier[] = [
   { id: 'supplier-006', name: '饮料饮品批发中心', contact: '郑经理', phone: '13800138006', address: '深圳市南山区科技园南区', category: '饮料冲调', remark: '各类饮料、冲调产品批发' },
 ]
 
-function generateMockPurchases(stores: Store[], products: Product[], suppliers: Supplier[]): Purchase[] {
+function generateMockPurchases(stores: Store[], products: Product[], suppliers: Supplier[]): { purchases: Purchase[], paymentRecords: PaymentRecord[] } {
   const purchases: Purchase[] = []
+  const allPaymentRecords: PaymentRecord[] = []
   const staffNames = ['小李', '小王', '小张', '小陈', '小赵', '小刘']
   const statuses: PurchaseStatus[] = ['pending_approval', 'approved', 'pending_order', 'ordered', 'pending_arrival', 'partial_arrival', 'completed', 'cancelled']
+  const paymentMethods: PaymentMethod[] = ['bank_transfer', 'alipay', 'wechat', 'cash', 'other']
   const reasons = [
     '库存预警，急需补货',
     '促销活动备货',
@@ -501,6 +503,12 @@ function generateMockPurchases(stores: Store[], products: Product[], suppliers: 
     const actualItems = items.map((it) => ({ ...it }))
     const receiveItems: PurchaseReceiveItem[] = []
 
+    let reconciliationStatus: ReconciliationStatus = 'pending_reconciliation'
+    let paymentStatus: PaymentStatus = 'pending_payment'
+    let paidAmount = 0
+    const paymentRecords: PaymentRecord[] = []
+    let reconciliationTime: string | undefined
+
     if (status !== 'pending_approval' && status !== 'cancelled') {
       const approvedTime = new Date(createDate)
       approvedTime.setMinutes(approvedTime.getMinutes() + rand(30, 240))
@@ -551,6 +559,54 @@ function generateMockPurchases(stores: Store[], products: Product[], suppliers: 
               operator: pick(staffNames),
               remark: isPartial ? '部分商品已到货，已入库' : '全部商品已到货，已完成入库',
             })
+
+            if (status === 'completed') {
+              const reconRand = Math.random()
+              if (reconRand > 0.3) {
+                const reconTime = new Date(arrivalTime)
+                reconTime.setHours(reconTime.getHours() + rand(2, 48))
+                reconciliationStatus = 'reconciled'
+                reconciliationTime = formatDate(reconTime)
+
+                const paymentRand = Math.random()
+                if (paymentRand < 0.4) {
+                  paymentStatus = 'paid'
+                  paidAmount = Math.round(total * 100) / 100
+                  const payTime = new Date(reconTime)
+                  payTime.setHours(payTime.getHours() + rand(2, 72))
+                  const paymentRecord: PaymentRecord = {
+                    id: `pay-${idx}-1`,
+                    purchaseId: `purchase-${String(idx).padStart(5, '0')}`,
+                    purchaseNo: '',
+                    amount: paidAmount,
+                    paymentTime: formatDate(payTime),
+                    paymentMethod: pick(paymentMethods),
+                    operator: pick(staffNames),
+                    remark: '全额付款',
+                  }
+                  paymentRecords.push(paymentRecord)
+                  allPaymentRecords.push(paymentRecord)
+                } else if (paymentRand < 0.7) {
+                  paymentStatus = 'partial_payment'
+                  const partialAmount = Math.round(total * 0.5 * 100) / 100
+                  paidAmount = partialAmount
+                  const payTime = new Date(reconTime)
+                  payTime.setHours(payTime.getHours() + rand(2, 48))
+                  const paymentRecord: PaymentRecord = {
+                    id: `pay-${idx}-1`,
+                    purchaseId: `purchase-${String(idx).padStart(5, '0')}`,
+                    purchaseNo: '',
+                    amount: partialAmount,
+                    paymentTime: formatDate(payTime),
+                    paymentMethod: pick(paymentMethods),
+                    operator: pick(staffNames),
+                    remark: '支付50%定金',
+                  }
+                  paymentRecords.push(paymentRecord)
+                  allPaymentRecords.push(paymentRecord)
+                }
+              }
+            }
           } else {
             statusLogs.push({
               id: `plog-${idx}-3`,
@@ -574,9 +630,10 @@ function generateMockPurchases(stores: Store[], products: Product[], suppliers: 
       })
     }
 
-    purchases.push({
+    const purchaseNo = generatePurchaseNo(idx - 1)
+    const purchase: Purchase = {
       id: `purchase-${String(idx).padStart(5, '0')}`,
-      purchaseNo: generatePurchaseNo(idx - 1),
+      purchaseNo,
       supplierId: supplier.id,
       supplierName: supplier.name,
       storeId: store.id,
@@ -590,12 +647,26 @@ function generateMockPurchases(stores: Store[], products: Product[], suppliers: 
       status,
       cancelReason: status === 'cancelled' ? '库存情况变化，取消采购' : undefined,
       statusLogs,
+      reconciliationStatus,
+      paymentStatus,
+      paidAmount,
+      paymentRecords: paymentRecords.map(r => ({ ...r, purchaseNo })),
+      reconciliationTime,
       createdAt: formatDate(createDate),
       createdBy: pick(staffNames),
       operator: pick(staffNames),
-    })
+    }
+    purchases.push(purchase)
   }
-  return purchases
+
+  allPaymentRecords.forEach(pr => {
+    const purchase = purchases.find(p => p.id === pr.purchaseId)
+    if (purchase) {
+      pr.purchaseNo = purchase.purchaseNo
+    }
+  })
+
+  return { purchases, paymentRecords: allPaymentRecords }
 }
 
 export function createMockDatabase(): Database {
@@ -647,7 +718,7 @@ export function createMockDatabase(): Database {
   }
 
   const transfers: Transfer[] = generateMockTransfers(stores, products)
-  const purchases: Purchase[] = generateMockPurchases(stores, products, suppliers)
+  const { purchases, paymentRecords } = generateMockPurchases(stores, products, suppliers)
 
-  return { stores, products, orders, stocks, stockRecords, transfers, suppliers, purchases }
+  return { stores, products, orders, stocks, stockRecords, transfers, suppliers, purchases, paymentRecords }
 }

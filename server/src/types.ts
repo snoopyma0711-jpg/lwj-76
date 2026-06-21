@@ -20,6 +20,10 @@ export type PurchaseStatus =
   | 'completed'
   | 'cancelled'
 
+export type ReconciliationStatus = 'pending_reconciliation' | 'reconciled'
+export type PaymentStatus = 'pending_payment' | 'partial_payment' | 'paid'
+export type PaymentMethod = 'bank_transfer' | 'alipay' | 'wechat' | 'cash' | 'other'
+
 export interface Supplier {
   id: string
   name: string
@@ -61,6 +65,17 @@ export interface PurchaseStatusLog {
   remark?: string
 }
 
+export interface PaymentRecord {
+  id: string
+  purchaseId: string
+  purchaseNo: string
+  amount: number
+  paymentTime: string
+  paymentMethod: PaymentMethod
+  operator: string
+  remark?: string
+}
+
 export interface Purchase {
   id: string
   purchaseNo: string
@@ -78,6 +93,11 @@ export interface Purchase {
   cancelReason?: string
   rejectReason?: string
   statusLogs: PurchaseStatusLog[]
+  reconciliationStatus: ReconciliationStatus
+  paymentStatus: PaymentStatus
+  paidAmount: number
+  paymentRecords: PaymentRecord[]
+  reconciliationTime?: string
   createdAt: string
   createdBy: string
   operator?: string
@@ -234,6 +254,7 @@ export interface Database {
   transfers: Transfer[]
   suppliers: Supplier[]
   purchases: Purchase[]
+  paymentRecords: PaymentRecord[]
 }
 
 export interface ApiResponse<T = any> {
