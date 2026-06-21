@@ -1,4 +1,4 @@
-import type { OrderStatus, TransferStatus, TransferType } from '../types'
+import type { OrderStatus, TransferStatus, TransferType, PurchaseStatus } from '../types'
 
 export const transferTypeMap: Record<TransferType, { label: string; color: string; bgColor: string }> = {
   replenish: { label: '补货申请', color: 'text-blue-700', bgColor: 'bg-blue-50 border-blue-200' },
@@ -37,6 +37,17 @@ export const stockChangeTypeMap: Record<'in' | 'out' | 'adjust', { label: string
   in: { label: '入库', color: 'text-green-600' },
   out: { label: '出库', color: 'text-red-600' },
   adjust: { label: '调整', color: 'text-blue-600' },
+}
+
+export const purchaseStatusMap: Record<PurchaseStatus, { label: string; color: string; bgColor: string }> = {
+  pending_approval: { label: '待审批', color: 'text-amber-700', bgColor: 'bg-amber-50 border-amber-200' },
+  approved: { label: '待下单', color: 'text-blue-700', bgColor: 'bg-blue-50 border-blue-200' },
+  pending_order: { label: '待下单', color: 'text-blue-700', bgColor: 'bg-blue-50 border-blue-200' },
+  ordered: { label: '待到货', color: 'text-cyan-700', bgColor: 'bg-cyan-50 border-cyan-200' },
+  pending_arrival: { label: '待到货', color: 'text-cyan-700', bgColor: 'bg-cyan-50 border-cyan-200' },
+  partial_arrival: { label: '部分到货', color: 'text-orange-700', bgColor: 'bg-orange-50 border-orange-200' },
+  completed: { label: '已完成', color: 'text-green-700', bgColor: 'bg-green-50 border-green-200' },
+  cancelled: { label: '已取消', color: 'text-gray-700', bgColor: 'bg-gray-50 border-gray-200' },
 }
 
 export function formatMoney(n: number): string {

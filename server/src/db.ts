@@ -1,6 +1,6 @@
-import type { Database, Order, OrderStatus, OrderItem, StoreStock, StockRecord, Transfer, TransferType, TransferStatus, TransferItem } from './types'
+import type { Database, Order, OrderStatus, OrderItem, StoreStock, StockRecord, Transfer, TransferType, TransferStatus, TransferItem, Supplier, Purchase, PurchaseStatus, PurchaseItem, PurchaseReceiveItem } from './types'
 import { createMockDatabase } from './mockData'
-import { nowStr, generateOrderNo, isValidPhone, orderStatusMap, generateTransferNo, transferStatusMap } from './utils'
+import { nowStr, generateOrderNo, isValidPhone, orderStatusMap, generateTransferNo, transferStatusMap, generatePurchaseNo, purchaseStatusMap } from './utils'
 import { v4 as uuidv4 } from 'uuid'
 
 const db: Database = createMockDatabase()
@@ -947,4 +947,369 @@ export function processTransferInbound(params: {
     ],
   }
   return { success: true, message: '入库成功，调拨已完成' }
+}
+
+export function getSuppliers(keyword?: string, category?: string) {
+  let list = db.suppliers.slice()
+  if (keyword) {
+    const kw = keyword.toLowerCase()
+    list = list.filter(
+      (s) =>
+        s.name.toLowerCase().includes(kw) ||
+        s.contact.toLowerCase().includes(kw) ||
+        s.phone.includes(kw),
+    )
+  }
+  if (category) list = list.filter((s) => s.category === category)
+  return list
+}
+
+export function getPurchases(params?: {
+  keyword?: string
+  status?: PurchaseStatus | 'all'
+  supplierId?: string
+  storeId?: string
+  startDate?: string
+  endDate?: string
+}) {
+  let list = db.purchases.slice()
+  if (params?.keyword?.trim()) {
+    const kw = params.keyword.trim().toLowerCase()
+    list = list.filter(
+      (p) =>
+        p.purchaseNo.toLowerCase().includes(kw) ||
+        p.supplierName.toLowerCase().includes(kw) ||
+        p.storeName.toLowerCase().includes(kw) ||
+        p.items.some((it) => it.productName.toLowerCase().includes(kw) || it.sku.toLowerCase().includes(kw)),
+    )
+  }
+  if (params?.status && params.status !== 'all') {
+    list = list.filter((p) => p.status === params.status)
+  }
+  if (params?.supplierId) list = list.filter((p) => p.supplierId === params.supplierId)
+  if (params?.storeId) list = list.filter((p) => p.storeId === params.storeId)
+  if (params?.startDate) list = list.filter((p) => p.createdAt.slice(0, 10) >= params.startDate!)
+  if (params?.endDate) list = list.filter((p) => p.createdAt.slice(0, 10) <= params.endDate!)
+  return list.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+}
+
+export function getPurchaseById(id: string): Purchase | undefined {
+  return db.purchases.find((p) => p.id === id)
+}
+
+export function getPurchaseByNo(purchaseNo: string): Purchase | undefined {
+  return db.purchases.find((p) => p.purchaseNo === purchaseNo)
+}
+
+export interface CreatePurchaseParams {
+  supplierId: string
+  storeId: string
+  items: { productId: string; quantity: number; unitPrice: number }[]
+  expectedArrivalTime: string
+  reason: string
+  operator?: string
+}
+
+export function createPurchase(params: CreatePurchaseParams): { success: boolean; message: string; data?: Purchase } {
+  const { supplierId, storeId, items, expectedArrivalTime, reason, operator = '系统' } = params
+  if (!supplierId) return { success: false, message: '请选择供应商' }
+  if (!storeId) return { success: false, message: '请选择入库门店' }
+  if (!items || items.length === 0) return { success: false, message: '请添加至少一个商品' }
+  if (!expectedArrivalTime) return { success: false, message: '请选择期望到货时间' }
+  if (new Date(expectedArrivalTime).getTime() < Date.now()) {
+    return { success: false, message: '期望到货时间不能早于当前时间' }
+  }
+  if (!reason.trim()) return { success: false, message: '请填写采购原因' }
+  if (reason.length > 500) return { success: false, message: '采购原因不能超过500字' }
+
+  const supplier = db.suppliers.find((s) => s.id === supplierId)
+  if (!supplier) return { success: false, message: '供应商不存在' }
+  const store = db.stores.find((s) => s.id === storeId)
+  if (!store) return { success: false, message: '门店不存在' }
+
+  const purchaseItems: PurchaseItem[] = []
+  let totalAmount = 0
+
+  for (const it of items) {
+    if (!it.quantity || it.quantity <= 0) return { success: false, message: '商品数量必须大于0' }
+    if (it.unitPrice < 0) return { success: false, message: '采购单价不能为负数' }
+    const product = db.products.find((p) => p.id === it.productId)
+    if (!product) return { success: false, message: '商品不存在' }
+
+    purchaseItems.push({
+      id: uuidv4(),
+      productId: product.id,
+      productName: product.name,
+      sku: product.sku,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+      receivedQuantity: 0,
+      unit: product.unit,
+    })
+    totalAmount += it.unitPrice * it.quantity
+  }
+
+  const time = nowStr()
+  const purchase: Purchase = {
+    id: uuidv4(),
+    purchaseNo: generatePurchaseNo(db.purchases.length),
+    supplierId,
+    supplierName: supplier.name,
+    storeId,
+    storeName: store.name,
+    items: purchaseItems,
+    receiveItems: [],
+    totalAmount: Math.round(totalAmount * 100) / 100,
+    expectedArrivalTime,
+    reason: reason.trim(),
+    status: 'pending_approval',
+    statusLogs: [
+      {
+        id: uuidv4(),
+        status: 'pending_approval',
+        time,
+        operator,
+        remark: reason.trim(),
+      },
+    ],
+    createdAt: time,
+    createdBy: operator,
+    operator,
+  }
+  db.purchases.unshift(purchase)
+  return { success: true, message: '采购申请已提交，等待审批', data: purchase }
+}
+
+export function approvePurchase(params: {
+  purchaseId: string
+  remark?: string
+  operator?: string
+}): { success: boolean; message: string } {
+  const purchase = db.purchases.find((p) => p.id === params.purchaseId)
+  if (!purchase) return { success: false, message: '采购单不存在' }
+  if (purchase.status !== 'pending_approval') {
+    return { success: false, message: '只有待审批的采购单才能审批' }
+  }
+  const time = nowStr()
+  const idx = db.purchases.findIndex((p) => p.id === params.purchaseId)
+  db.purchases[idx] = {
+    ...purchase,
+    status: 'approved',
+    statusLogs: [
+      ...purchase.statusLogs,
+      {
+        id: uuidv4(),
+        status: 'approved',
+        time,
+        operator: params.operator || '系统',
+        remark: params.remark || '已审批通过，请尽快向供应商下单',
+      },
+    ],
+  }
+  return { success: true, message: '审批通过' }
+}
+
+export function rejectPurchase(params: {
+  purchaseId: string
+  reason: string
+  operator?: string
+}): { success: boolean; message: string } {
+  const purchase = db.purchases.find((p) => p.id === params.purchaseId)
+  if (!purchase) return { success: false, message: '采购单不存在' }
+  if (purchase.status !== 'pending_approval') {
+    return { success: false, message: '只有待审批的采购单才能拒绝' }
+  }
+  if (!params.reason.trim()) return { success: false, message: '请填写拒绝原因' }
+  if (params.reason.length > 500) return { success: false, message: '拒绝原因不能超过500字' }
+  const time = nowStr()
+  const idx = db.purchases.findIndex((p) => p.id === params.purchaseId)
+  db.purchases[idx] = {
+    ...purchase,
+    status: 'cancelled',
+    rejectReason: params.reason.trim(),
+    statusLogs: [
+      ...purchase.statusLogs,
+      {
+        id: uuidv4(),
+        status: 'cancelled',
+        time,
+        operator: params.operator || '系统',
+        remark: params.reason.trim(),
+      },
+    ],
+  }
+  return { success: true, message: '已拒绝采购申请' }
+}
+
+export function placePurchaseOrder(params: {
+  purchaseId: string
+  remark?: string
+  operator?: string
+}): { success: boolean; message: string } {
+  const purchase = db.purchases.find((p) => p.id === params.purchaseId)
+  if (!purchase) return { success: false, message: '采购单不存在' }
+  if (!['approved', 'pending_order'].includes(purchase.status)) {
+    return { success: false, message: '当前状态不允许下单操作' }
+  }
+  const time = nowStr()
+  const idx = db.purchases.findIndex((p) => p.id === params.purchaseId)
+  db.purchases[idx] = {
+    ...purchase,
+    status: 'ordered',
+    statusLogs: [
+      ...purchase.statusLogs,
+      {
+        id: uuidv4(),
+        status: 'ordered',
+        time,
+        operator: params.operator || '系统',
+        remark: params.remark || '已向供应商下单，等待发货',
+      },
+    ],
+  }
+  return { success: true, message: '下单成功' }
+}
+
+export function receivePurchaseItem(params: {
+  purchaseId: string
+  items: { purchaseItemId: string; quantity: number; differenceReason?: string }[]
+  remark?: string
+  operator?: string
+}): { success: boolean; message: string } {
+  const purchase = db.purchases.find((p) => p.id === params.purchaseId)
+  if (!purchase) return { success: false, message: '采购单不存在' }
+  if (!['ordered', 'pending_arrival', 'partial_arrival'].includes(purchase.status)) {
+    return { success: false, message: '当前状态不允许收货操作' }
+  }
+  if (!params.items || params.items.length === 0) {
+    return { success: false, message: '请填写收货明细' }
+  }
+
+  const time = nowStr()
+  const updatedItems = purchase.items.map((item) => {
+    const receive = params.items.find((r) => r.purchaseItemId === item.id)
+    if (!receive) return item
+    if (receive.quantity <= 0) {
+      throw new Error(`商品「${item.productName}」收货数量必须大于0`)
+    }
+    const remainingQty = item.quantity - item.receivedQuantity
+    if (receive.quantity > remainingQty) {
+      throw new Error(`商品「${item.productName}」收货数量不能超过剩余未收数量${remainingQty}${item.unit}`)
+    }
+    return { ...item, receivedQuantity: item.receivedQuantity + receive.quantity }
+  })
+
+  const newReceiveItems: PurchaseReceiveItem[] = params.items.map((r) => {
+    const item = purchase.items.find((it) => it.id === r.purchaseItemId)
+    if (!item) throw new Error('采购商品不存在')
+    return {
+      id: uuidv4(),
+      purchaseItemId: r.purchaseItemId,
+      productId: item.productId,
+      productName: item.productName,
+      sku: item.sku,
+      quantity: r.quantity,
+      unit: item.unit,
+      receivedTime: time,
+      differenceReason: r.differenceReason,
+    }
+  })
+
+  for (const receiveItem of newReceiveItems) {
+    const existingIdx = db.stocks.findIndex(
+      (s) => s.productId === receiveItem.productId && s.storeId === purchase.storeId,
+    )
+    let beforeQty = 0
+    if (existingIdx > -1) {
+      beforeQty = db.stocks[existingIdx].quantity
+      db.stocks[existingIdx] = {
+        ...db.stocks[existingIdx],
+        quantity: beforeQty + receiveItem.quantity,
+        updatedAt: time,
+      }
+    } else {
+      const newStock: StoreStock = {
+        productId: receiveItem.productId,
+        storeId: purchase.storeId,
+        quantity: receiveItem.quantity,
+        lockedQuantity: 0,
+        updatedAt: time,
+      }
+      db.stocks.push(newStock)
+    }
+    const record: StockRecord = {
+      id: uuidv4(),
+      time,
+      productId: receiveItem.productId,
+      productName: receiveItem.productName,
+      storeId: purchase.storeId,
+      storeName: purchase.storeName,
+      type: 'in',
+      quantity: receiveItem.quantity,
+      beforeQuantity: beforeQty,
+      afterQuantity: beforeQty + receiveItem.quantity,
+      operator: params.operator || '系统',
+      relatedOrderNo: purchase.purchaseNo,
+      remark: `采购入库，${receiveItem.differenceReason || '数量正常'}`,
+    }
+    db.stockRecords.unshift(record)
+  }
+
+  const allReceived = updatedItems.every((it) => it.receivedQuantity >= it.quantity)
+  const newStatus: PurchaseStatus = allReceived ? 'completed' : 'partial_arrival'
+
+  const idx = db.purchases.findIndex((p) => p.id === params.purchaseId)
+  db.purchases[idx] = {
+    ...purchase,
+    items: updatedItems,
+    receiveItems: [...newReceiveItems, ...purchase.receiveItems],
+    status: newStatus,
+    actualArrivalTime: purchase.actualArrivalTime || time,
+    statusLogs: [
+      ...purchase.statusLogs,
+      {
+        id: uuidv4(),
+        status: newStatus,
+        time,
+        operator: params.operator || '系统',
+        remark: params.remark || (allReceived ? '全部商品已到货，已完成入库' : '部分商品已到货，已入库'),
+      },
+    ],
+  }
+  return { success: true, message: '收货入库成功' }
+}
+
+export function cancelPurchase(params: {
+  purchaseId: string
+  reason: string
+  operator?: string
+}): { success: boolean; message: string } {
+  const purchase = db.purchases.find((p) => p.id === params.purchaseId)
+  if (!purchase) return { success: false, message: '采购单不存在' }
+  if (['completed', 'cancelled'].includes(purchase.status)) {
+    return { success: false, message: `当前状态为「${purchaseStatusMap[purchase.status].label}」，无法取消` }
+  }
+  if (purchase.receiveItems.length > 0) {
+    return { success: false, message: '已有商品入库，无法取消采购单' }
+  }
+  if (!params.reason.trim()) return { success: false, message: '请填写取消原因' }
+  if (params.reason.length > 500) return { success: false, message: '取消原因不能超过500字' }
+  const time = nowStr()
+  const idx = db.purchases.findIndex((p) => p.id === params.purchaseId)
+  db.purchases[idx] = {
+    ...purchase,
+    status: 'cancelled',
+    cancelReason: params.reason.trim(),
+    statusLogs: [
+      ...purchase.statusLogs,
+      {
+        id: uuidv4(),
+        status: 'cancelled',
+        time,
+        operator: params.operator || '系统',
+        remark: params.reason.trim(),
+      },
+    ],
+  }
+  return { success: true, message: '采购单已取消' }
 }

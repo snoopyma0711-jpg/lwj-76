@@ -50,3 +50,21 @@ export const transferStatusMap: Record<string, { label: string; color: string; b
   completed: { label: '已完成', color: 'text-green-700', bgColor: 'bg-green-50 border-green-200' },
   rejected: { label: '已拒绝', color: 'text-red-700', bgColor: 'bg-red-50 border-red-200' },
 }
+
+export const purchaseStatusMap: Record<string, { label: string; color: string; bgColor: string }> = {
+  pending_approval: { label: '待审批', color: 'text-amber-700', bgColor: 'bg-amber-50 border-amber-200' },
+  approved: { label: '待下单', color: 'text-blue-700', bgColor: 'bg-blue-50 border-blue-200' },
+  pending_order: { label: '待下单', color: 'text-blue-700', bgColor: 'bg-blue-50 border-blue-200' },
+  ordered: { label: '待到货', color: 'text-cyan-700', bgColor: 'bg-cyan-50 border-cyan-200' },
+  pending_arrival: { label: '待到货', color: 'text-cyan-700', bgColor: 'bg-cyan-50 border-cyan-200' },
+  partial_arrival: { label: '部分到货', color: 'text-orange-700', bgColor: 'bg-orange-50 border-orange-200' },
+  completed: { label: '已完成', color: 'text-green-700', bgColor: 'bg-green-50 border-green-200' },
+  cancelled: { label: '已取消', color: 'text-gray-700', bgColor: 'bg-gray-50 border-gray-200' },
+}
+
+export function generatePurchaseNo(purchaseCount: number): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const seq = String(purchaseCount + 1).padStart(4, '0')
+  return `PU${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${seq}`
+}

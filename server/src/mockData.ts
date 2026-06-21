@@ -1,5 +1,5 @@
-import type { Database, Store, Product, Order, StoreStock, StockRecord, OrderItem, ContactRecord, OrderStatusLog, OrderStatus, Transfer, TransferStatus, TransferType, TransferStatusLog, TransferItem } from './types'
-import { formatDate, generateTransferNo } from './utils'
+import type { Database, Store, Product, Order, StoreStock, StockRecord, OrderItem, ContactRecord, OrderStatusLog, OrderStatus, Transfer, TransferStatus, TransferType, TransferStatusLog, TransferItem, Supplier, Purchase, PurchaseStatus, PurchaseItem, PurchaseReceiveItem, PurchaseStatusLog } from './types'
+import { formatDate, generateTransferNo, generatePurchaseNo } from './utils'
 
 const storeList = [
   { id: 'store-001', name: '朝阳大悦城店', address: '北京市朝阳区朝阳北路101号大悦城B1层', manager: '张店长', phone: '010-85551234' },
@@ -410,10 +410,199 @@ function generateMockTransfers(stores: Store[], products: Product[]): Transfer[]
   return transfers
 }
 
+const supplierList: Supplier[] = [
+  { id: 'supplier-001', name: '北京新发地农产品批发市场', contact: '刘经理', phone: '13800138001', address: '北京市丰台区新发地农产品批发市场', category: '生鲜水果', remark: '主要供应各类时令水果，价格优惠' },
+  { id: 'supplier-002', name: '上海农产品中心批发市场', contact: '陈经理', phone: '13800138002', address: '上海市浦东新区沪南路2000号', category: '肉禽蛋品', remark: '供应各类肉类、禽蛋产品，品质保证' },
+  { id: 'supplier-003', name: '广州江南果菜批发市场', contact: '黄经理', phone: '13800138003', address: '广州市白云区增槎路926号', category: '海鲜水产', remark: '各类海鲜水产，每日新鲜直达' },
+  { id: 'supplier-004', name: '咖啡原料供应商联盟', contact: '周经理', phone: '13800138004', address: '上海市静安区南京西路1688号', category: '咖啡茶饮', remark: '进口咖啡豆、茶叶等原料供应商' },
+  { id: 'supplier-005', name: '烘焙原料一站式', contact: '吴经理', phone: '13800138005', address: '广州市天河区珠江新城华夏路10号', category: '烘焙甜点', remark: '各类烘焙原料、半成品供应' },
+  { id: 'supplier-006', name: '饮料饮品批发中心', contact: '郑经理', phone: '13800138006', address: '深圳市南山区科技园南区', category: '饮料冲调', remark: '各类饮料、冲调产品批发' },
+]
+
+function generateMockPurchases(stores: Store[], products: Product[], suppliers: Supplier[]): Purchase[] {
+  const purchases: Purchase[] = []
+  const staffNames = ['小李', '小王', '小张', '小陈', '小赵', '小刘']
+  const statuses: PurchaseStatus[] = ['pending_approval', 'approved', 'pending_order', 'ordered', 'pending_arrival', 'partial_arrival', 'completed', 'cancelled']
+  const reasons = [
+    '库存预警，急需补货',
+    '促销活动备货',
+    '新品上架首批采购',
+    '季节性商品调整',
+    '大促活动前备货',
+    '日常库存补充',
+    '门店销量超预期',
+  ]
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+
+  for (let idx = 1; idx <= 35; idx++) {
+    const daysAgo = rand(0, 14)
+    const createDate = new Date()
+    createDate.setDate(createDate.getDate() - daysAgo)
+    createDate.setHours(rand(8, 20), rand(0, 59), rand(0, 59), 0)
+
+    const supplier = pick(suppliers)
+    const store = pick(stores)
+    const categoryProducts = products.filter(p => {
+      if (supplier.category === '生鲜水果') return p.category === '生鲜水果'
+      if (supplier.category === '肉禽蛋品') return p.category === '肉禽蛋品'
+      if (supplier.category === '海鲜水产') return p.category === '海鲜水产'
+      if (supplier.category === '咖啡茶饮') return p.category === '咖啡茶饮'
+      if (supplier.category === '烘焙甜点') return p.category === '烘焙甜点'
+      if (supplier.category === '饮料冲调') return p.category === '饮料冲调'
+      return true
+    })
+    if (categoryProducts.length === 0) continue
+
+    const itemCount = rand(1, 5)
+    const pickedProducts = new Set<string>()
+    const items: PurchaseItem[] = []
+    for (let i = 0; i < itemCount; i++) {
+      const product = pick(categoryProducts)
+      if (pickedProducts.has(product.id)) continue
+      pickedProducts.add(product.id)
+      const qty = rand(5, 50)
+      const unitPrice = Math.round((product.price * (0.7 + Math.random() * 0.2)) * 100) / 100
+      items.push({
+        id: `pi-${idx}-${i}`,
+        productId: product.id,
+        productName: product.name,
+        sku: product.sku,
+        quantity: qty,
+        unitPrice,
+        receivedQuantity: 0,
+        unit: product.unit,
+      })
+    }
+    let total = 0
+    items.forEach((it) => (total += it.unitPrice * it.quantity))
+
+    let status: PurchaseStatus = pick(statuses)
+    if (daysAgo === 0) {
+      const hr = createDate.getHours()
+      if (hr > d.getHours()) {
+        status = pick(['pending_approval', 'approved', 'pending_order'] as PurchaseStatus[])
+      }
+    }
+
+    const expectedDate = new Date(createDate)
+    expectedDate.setHours(expectedDate.getHours() + rand(24, 120))
+
+    const statusLogs: PurchaseStatusLog[] = [
+      {
+        id: `plog-${idx}-0`,
+        status: 'pending_approval',
+        time: formatDate(createDate),
+        operator: pick(staffNames),
+        remark: pick(reasons),
+      },
+    ]
+
+    const actualItems = items.map((it) => ({ ...it }))
+    const receiveItems: PurchaseReceiveItem[] = []
+
+    if (status !== 'pending_approval' && status !== 'cancelled') {
+      const approvedTime = new Date(createDate)
+      approvedTime.setMinutes(approvedTime.getMinutes() + rand(30, 240))
+      statusLogs.push({
+        id: `plog-${idx}-1`,
+        status: 'approved',
+        time: formatDate(approvedTime),
+        operator: pick(staffNames),
+        remark: '已审批通过，请尽快下单',
+      })
+
+      if (['pending_order', 'ordered', 'pending_arrival', 'partial_arrival', 'completed'].includes(status)) {
+        const orderedTime = new Date(approvedTime)
+        orderedTime.setHours(orderedTime.getHours() + rand(1, 24))
+        statusLogs.push({
+          id: `plog-${idx}-2`,
+          status: 'ordered',
+          time: formatDate(orderedTime),
+          operator: pick(staffNames),
+          remark: '已向供应商下单，等待发货',
+        })
+
+        if (['pending_arrival', 'partial_arrival', 'completed'].includes(status)) {
+          const arrivalTime = new Date(orderedTime)
+          arrivalTime.setHours(arrivalTime.getHours() + rand(24, 72))
+
+          if (status === 'partial_arrival' || status === 'completed') {
+            const isPartial = status === 'partial_arrival'
+            actualItems.forEach((it, i) => {
+              const receivedQty = isPartial ? rand(1, it.quantity - 1) : it.quantity
+              it.receivedQuantity = receivedQty
+              receiveItems.push({
+                id: `pri-${idx}-${i}`,
+                purchaseItemId: it.id,
+                productId: it.productId,
+                productName: it.productName,
+                sku: it.sku,
+                quantity: receivedQty,
+                unit: it.unit,
+                receivedTime: formatDate(arrivalTime),
+                differenceReason: isPartial && receivedQty < it.quantity ? '供应商分批配送' : undefined,
+              })
+            })
+            statusLogs.push({
+              id: `plog-${idx}-3`,
+              status: isPartial ? 'partial_arrival' : 'completed',
+              time: formatDate(arrivalTime),
+              operator: pick(staffNames),
+              remark: isPartial ? '部分商品已到货，已入库' : '全部商品已到货，已完成入库',
+            })
+          } else {
+            statusLogs.push({
+              id: `plog-${idx}-3`,
+              status: 'pending_arrival',
+              time: formatDate(arrivalTime),
+              operator: pick(staffNames),
+              remark: '供应商已发货，预计近期到货',
+            })
+          }
+        }
+      }
+    }
+
+    if (status === 'cancelled') {
+      statusLogs.push({
+        id: `plog-${idx}-r`,
+        status: 'cancelled',
+        time: formatDate(createDate),
+        operator: pick(staffNames),
+        remark: '库存情况变化，取消采购',
+      })
+    }
+
+    purchases.push({
+      id: `purchase-${String(idx).padStart(5, '0')}`,
+      purchaseNo: generatePurchaseNo(idx - 1),
+      supplierId: supplier.id,
+      supplierName: supplier.name,
+      storeId: store.id,
+      storeName: store.name,
+      items: actualItems,
+      receiveItems,
+      totalAmount: Math.round(total * 100) / 100,
+      expectedArrivalTime: formatDate(expectedDate),
+      actualArrivalTime: receiveItems.length > 0 ? receiveItems[0].receivedTime : undefined,
+      reason: pick(reasons),
+      status,
+      cancelReason: status === 'cancelled' ? '库存情况变化，取消采购' : undefined,
+      statusLogs,
+      createdAt: formatDate(createDate),
+      createdBy: pick(staffNames),
+      operator: pick(staffNames),
+    })
+  }
+  return purchases
+}
+
 export function createMockDatabase(): Database {
   const stores: Store[] = storeList as Store[]
   const products: Product[] = productList as Product[]
   const orders: Order[] = generateMockOrders(stores, products)
+  const suppliers: Supplier[] = supplierList as Supplier[]
 
   const stocks: StoreStock[] = []
   const now = formatDate(new Date())
@@ -458,6 +647,7 @@ export function createMockDatabase(): Database {
   }
 
   const transfers: Transfer[] = generateMockTransfers(stores, products)
+  const purchases: Purchase[] = generateMockPurchases(stores, products, suppliers)
 
-  return { stores, products, orders, stocks, stockRecords, transfers }
+  return { stores, products, orders, stocks, stockRecords, transfers, suppliers, purchases }
 }

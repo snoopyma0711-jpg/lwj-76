@@ -1,4 +1,4 @@
-import type { Order, OrderStatus, Store, Product, StoreStock, StockRecord, Transfer, TransferType, TransferStatus } from '../types'
+import type { Order, OrderStatus, Store, Product, StoreStock, StockRecord, Transfer, TransferType, TransferStatus, Supplier, Purchase, PurchaseStatus } from '../types'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api'
 const OPERATOR_NAME = '张店长'
@@ -203,5 +203,65 @@ export const api = {
   }) => request(`/transfers/${transferId}/inbound`, {
     method: 'PUT',
     body: JSON.stringify(data || {}),
+  }),
+
+  getSuppliers: (params?: { keyword?: string; category?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.keyword) qs.set('keyword', params.keyword)
+    if (params?.category) qs.set('category', params.category)
+    return request<Supplier[]>(`/suppliers${qs.toString() ? '?' + qs.toString() : ''}`)
+  },
+
+  getPurchases: (params?: {
+    keyword?: string
+    status?: PurchaseStatus | 'all'
+    supplierId?: string
+    storeId?: string
+    startDate?: string
+    endDate?: string
+  }) => {
+    const qs = new URLSearchParams()
+    if (params?.keyword) qs.set('keyword', params.keyword)
+    if (params?.status) qs.set('status', params.status)
+    if (params?.supplierId) qs.set('supplierId', params.supplierId)
+    if (params?.storeId) qs.set('storeId', params.storeId)
+    if (params?.startDate) qs.set('startDate', params.startDate)
+    if (params?.endDate) qs.set('endDate', params.endDate)
+    return request<Purchase[]>(`/purchases${qs.toString() ? '?' + qs.toString() : ''}`)
+  },
+  getPurchaseById: (id: string) => request<Purchase>(`/purchases/${id}`),
+  getPurchaseByNo: (purchaseNo: string) => request<Purchase>(`/purchases/by-no/${encodeURIComponent(purchaseNo)}`),
+  createPurchase: (data: {
+    supplierId: string
+    storeId: string
+    items: { productId: string; quantity: number; unitPrice: number }[]
+    expectedArrivalTime: string
+    reason: string
+  }) => request<Purchase>('/purchases', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  approvePurchase: (purchaseId: string, data?: { remark?: string }) => request(`/purchases/${purchaseId}/approve`, {
+    method: 'PUT',
+    body: JSON.stringify(data || {}),
+  }),
+  rejectPurchase: (purchaseId: string, data: { reason: string }) => request(`/purchases/${purchaseId}/reject`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  placePurchaseOrder: (purchaseId: string, data?: { remark?: string }) => request(`/purchases/${purchaseId}/place-order`, {
+    method: 'PUT',
+    body: JSON.stringify(data || {}),
+  }),
+  receivePurchaseItem: (purchaseId: string, data: {
+    items: { purchaseItemId: string; quantity: number; differenceReason?: string }[]
+    remark?: string
+  }) => request(`/purchases/${purchaseId}/receive`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  cancelPurchase: (purchaseId: string, data: { reason: string }) => request(`/purchases/${purchaseId}/cancel`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
   }),
 }

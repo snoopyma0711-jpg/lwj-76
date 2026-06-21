@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, ReactNode, useEffect } from 'react'
-import type { AppState, AppAction, Order, StoreStock, StockRecord, Product, Transfer, TransferType, TransferStatus, TransferItem } from '../types'
+import type { AppState, AppAction, Order, StoreStock, StockRecord, Product, Transfer, TransferType, TransferStatus, TransferItem, Purchase, PurchaseStatus, Supplier } from '../types'
 import { mockStores, mockProducts, mockOrders, mockStocks, mockStockRecords, mockTransfers } from '../data/mockData'
 import { orderStatusMap } from '../utils/constants'
 import { api } from '../services/api'
@@ -11,6 +11,8 @@ const initialState: AppState = {
   stocks: mockStocks,
   stockRecords: mockStockRecords,
   transfers: mockTransfers,
+  suppliers: [],
+  purchases: [],
   currentUser: {
     name: '张店长',
     role: 'manager',
@@ -127,6 +129,26 @@ function reducer(state: AppState, action: AppAction): AppState {
         ),
       }
     }
+    case 'SET_SUPPLIERS': {
+      return { ...state, suppliers: action.payload }
+    }
+    case 'SET_PURCHASES': {
+      return { ...state, purchases: action.payload }
+    }
+    case 'ADD_PURCHASE': {
+      return {
+        ...state,
+        purchases: [action.payload, ...state.purchases],
+      }
+    }
+    case 'UPDATE_PURCHASE': {
+      return {
+        ...state,
+        purchases: state.purchases.map((p) =>
+          p.id === action.payload.id ? action.payload : p,
+        ),
+      }
+    }
     default:
       return state
   }
@@ -230,6 +252,36 @@ interface AppContextValue {
     remark?: string
   }) => Promise<{ success: boolean; message: string }>
   getStoreAvailableStock: (storeId: string, productId: string) => number
+  refreshPurchases: () => Promise<void>
+  refreshSuppliers: () => Promise<void>
+  createPurchase: (params: {
+    supplierId: string
+    storeId: string
+    items: { productId: string; quantity: number; unitPrice: number }[]
+    expectedArrivalTime: string
+    reason: string
+  }) => Promise<{ success: boolean; message: string; purchase?: Purchase }>
+  approvePurchase: (params: {
+    purchase: Purchase
+    remark?: string
+  }) => Promise<{ success: boolean; message: string }>
+  rejectPurchase: (params: {
+    purchase: Purchase
+    reason: string
+  }) => Promise<{ success: boolean; message: string }>
+  placePurchaseOrder: (params: {
+    purchase: Purchase
+    remark?: string
+  }) => Promise<{ success: boolean; message: string }>
+  receivePurchaseItem: (params: {
+    purchase: Purchase
+    items: { purchaseItemId: string; quantity: number; differenceReason?: string }[]
+    remark?: string
+  }) => Promise<{ success: boolean; message: string }>
+  cancelPurchase: (params: {
+    purchase: Purchase
+    reason: string
+  }) => Promise<{ success: boolean; message: string }>
 }
 
 const AppContext = createContext<AppContextValue | undefined>(undefined)
@@ -241,13 +293,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let cancelled = false
 
     const loadInitialData = async () => {
-      const [storesRes, productsRes, ordersRes, stocksRes, stockRecordsRes, transfersRes] = await Promise.allSettled([
+      const [storesRes, productsRes, ordersRes, stocksRes, stockRecordsRes, transfersRes, suppliersRes, purchasesRes] = await Promise.allSettled([
         api.getStores(),
         api.getProducts(),
         api.getOrders(),
         api.getStocks(),
         api.getStockRecords(),
         api.getTransfers(),
+        api.getSuppliers(),
+        api.getPurchases(),
       ])
 
       if (cancelled) return
@@ -269,6 +323,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       if (transfersRes.status === 'fulfilled' && transfersRes.value.success && transfersRes.value.data) {
         dispatch({ type: 'SET_TRANSFERS', payload: transfersRes.value.data })
+      }
+      if (suppliersRes.status === 'fulfilled' && suppliersRes.value.success && suppliersRes.value.data) {
+        dispatch({ type: 'SET_SUPPLIERS', payload: suppliersRes.value.data })
+      }
+      if (purchasesRes.status === 'fulfilled' && purchasesRes.value.success && purchasesRes.value.data) {
+        dispatch({ type: 'SET_PURCHASES', payload: purchasesRes.value.data })
       }
     }
 
@@ -866,6 +926,84 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return { success: false, message: res.message }
   }
 
+  const refreshPurchases: AppContextValue['refreshPurchases'] = async () => {
+    const res = await api.getPurchases()
+    if (res.success && res.data) {
+      dispatch({ type: 'SET_PURCHASES', payload: res.data })
+    }
+  }
+
+  const refreshSuppliers: AppContextValue['refreshSuppliers'] = async () => {
+    const res = await api.getSuppliers()
+    if (res.success && res.data) {
+      dispatch({ type: 'SET_SUPPLIERS', payload: res.data })
+    }
+  }
+
+  const createPurchase: AppContextValue['createPurchase'] = async ({
+    supplierId,
+    storeId,
+    items,
+    expectedArrivalTime,
+    reason,
+  }) => {
+    const res = await api.createPurchase({ supplierId, storeId, items, expectedArrivalTime, reason })
+    if (res.success && res.data) {
+      dispatch({ type: 'ADD_PURCHASE', payload: res.data })
+      return { success: true, message: res.message, purchase: res.data }
+    }
+    return { success: false, message: res.message }
+  }
+
+  const approvePurchase: AppContextValue['approvePurchase'] = async ({ purchase, remark }) => {
+    const res = await api.approvePurchase(purchase.id, { remark })
+    if (res.success) {
+      await refreshPurchases()
+      return { success: true, message: res.message }
+    }
+    return { success: false, message: res.message }
+  }
+
+  const rejectPurchase: AppContextValue['rejectPurchase'] = async ({ purchase, reason }) => {
+    const res = await api.rejectPurchase(purchase.id, { reason })
+    if (res.success) {
+      await refreshPurchases()
+      return { success: true, message: res.message }
+    }
+    return { success: false, message: res.message }
+  }
+
+  const placePurchaseOrder: AppContextValue['placePurchaseOrder'] = async ({ purchase, remark }) => {
+    const res = await api.placePurchaseOrder(purchase.id, { remark })
+    if (res.success) {
+      await refreshPurchases()
+      return { success: true, message: res.message }
+    }
+    return { success: false, message: res.message }
+  }
+
+  const receivePurchaseItem: AppContextValue['receivePurchaseItem'] = async ({
+    purchase,
+    items,
+    remark,
+  }) => {
+    const res = await api.receivePurchaseItem(purchase.id, { items, remark })
+    if (res.success) {
+      await Promise.all([refreshPurchases(), refreshStocksAndRecords()])
+      return { success: true, message: res.message }
+    }
+    return { success: false, message: res.message }
+  }
+
+  const cancelPurchase: AppContextValue['cancelPurchase'] = async ({ purchase, reason }) => {
+    const res = await api.cancelPurchase(purchase.id, { reason })
+    if (res.success) {
+      await refreshPurchases()
+      return { success: true, message: res.message }
+    }
+    return { success: false, message: res.message }
+  }
+
   return (
     <AppContext.Provider
       value={{
@@ -891,6 +1029,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         processTransferInTransit,
         processTransferInbound,
         getStoreAvailableStock,
+        refreshPurchases,
+        refreshSuppliers,
+        createPurchase,
+        approvePurchase,
+        rejectPurchase,
+        placePurchaseOrder,
+        receivePurchaseItem,
+        cancelPurchase,
       }}
     >
       {children}

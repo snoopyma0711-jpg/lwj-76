@@ -10,6 +10,79 @@ export type OrderStatus =
 
 export type StockChangeType = 'in' | 'out' | 'adjust'
 
+export type PurchaseStatus =
+  | 'pending_approval'
+  | 'approved'
+  | 'pending_order'
+  | 'ordered'
+  | 'pending_arrival'
+  | 'partial_arrival'
+  | 'completed'
+  | 'cancelled'
+
+export interface Supplier {
+  id: string
+  name: string
+  contact: string
+  phone: string
+  address: string
+  category: string
+  remark?: string
+}
+
+export interface PurchaseItem {
+  id: string
+  productId: string
+  productName: string
+  sku: string
+  quantity: number
+  unitPrice: number
+  receivedQuantity: number
+  unit: string
+}
+
+export interface PurchaseReceiveItem {
+  id: string
+  purchaseItemId: string
+  productId: string
+  productName: string
+  sku: string
+  quantity: number
+  unit: string
+  receivedTime: string
+  differenceReason?: string
+}
+
+export interface PurchaseStatusLog {
+  id: string
+  status: PurchaseStatus
+  time: string
+  operator: string
+  remark?: string
+}
+
+export interface Purchase {
+  id: string
+  purchaseNo: string
+  supplierId: string
+  supplierName: string
+  storeId: string
+  storeName: string
+  items: PurchaseItem[]
+  receiveItems: PurchaseReceiveItem[]
+  totalAmount: number
+  expectedArrivalTime: string
+  actualArrivalTime?: string
+  reason: string
+  status: PurchaseStatus
+  cancelReason?: string
+  rejectReason?: string
+  statusLogs: PurchaseStatusLog[]
+  createdAt: string
+  createdBy: string
+  operator?: string
+}
+
 export type TransferType = 'replenish' | 'transfer'
 export type TransferStatus =
   | 'pending'
@@ -159,6 +232,8 @@ export interface Database {
   stocks: StoreStock[]
   stockRecords: StockRecord[]
   transfers: Transfer[]
+  suppliers: Supplier[]
+  purchases: Purchase[]
 }
 
 export interface ApiResponse<T = any> {

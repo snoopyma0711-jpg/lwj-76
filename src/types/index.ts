@@ -10,6 +10,79 @@ export type OrderStatus =
 
 export type StockChangeType = 'in' | 'out' | 'adjust'
 
+export type PurchaseStatus =
+  | 'pending_approval'
+  | 'approved'
+  | 'pending_order'
+  | 'ordered'
+  | 'pending_arrival'
+  | 'partial_arrival'
+  | 'completed'
+  | 'cancelled'
+
+export interface Supplier {
+  id: string
+  name: string
+  contact: string
+  phone: string
+  address: string
+  category: string
+  remark?: string
+}
+
+export interface PurchaseItem {
+  id: string
+  productId: string
+  productName: string
+  sku: string
+  quantity: number
+  unitPrice: number
+  receivedQuantity: number
+  unit: string
+}
+
+export interface PurchaseReceiveItem {
+  id: string
+  purchaseItemId: string
+  productId: string
+  productName: string
+  sku: string
+  quantity: number
+  unit: string
+  receivedTime: string
+  differenceReason?: string
+}
+
+export interface PurchaseStatusLog {
+  id: string
+  status: PurchaseStatus
+  time: string
+  operator: string
+  remark?: string
+}
+
+export interface Purchase {
+  id: string
+  purchaseNo: string
+  supplierId: string
+  supplierName: string
+  storeId: string
+  storeName: string
+  items: PurchaseItem[]
+  receiveItems: PurchaseReceiveItem[]
+  totalAmount: number
+  expectedArrivalTime: string
+  actualArrivalTime?: string
+  reason: string
+  status: PurchaseStatus
+  cancelReason?: string
+  rejectReason?: string
+  statusLogs: PurchaseStatusLog[]
+  createdAt: string
+  createdBy: string
+  operator?: string
+}
+
 export interface Store {
   id: string
   name: string
@@ -109,6 +182,8 @@ export interface AppState {
   stocks: StoreStock[]
   stockRecords: StockRecord[]
   transfers: Transfer[]
+  suppliers: Supplier[]
+  purchases: Purchase[]
   currentUser: {
     name: string
     role: 'manager' | 'staff'
@@ -173,6 +248,8 @@ export type AppAction =
   | { type: 'SET_PRODUCTS'; payload: Product[] }
   | { type: 'SET_STOCK_RECORDS'; payload: StockRecord[] }
   | { type: 'SET_TRANSFERS'; payload: Transfer[] }
+  | { type: 'SET_SUPPLIERS'; payload: Supplier[] }
+  | { type: 'SET_PURCHASES'; payload: Purchase[] }
   | { type: 'UPDATE_ORDER'; payload: Order }
   | { type: 'ADD_ORDER'; payload: Order }
   | { type: 'ADD_STATUS_LOG'; payload: { orderId: string; log: OrderStatusLog } }
@@ -183,3 +260,5 @@ export type AppAction =
   | { type: 'UPDATE_STORE'; payload: Store }
   | { type: 'ADD_TRANSFER'; payload: Transfer }
   | { type: 'UPDATE_TRANSFER'; payload: Transfer }
+  | { type: 'ADD_PURCHASE'; payload: Purchase }
+  | { type: 'UPDATE_PURCHASE'; payload: Purchase }

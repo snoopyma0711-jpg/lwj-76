@@ -350,6 +350,110 @@ app.get('/api/stats/summary', (_req, res) => {
   })
 })
 
+app.get('/api/suppliers', (req, res) => {
+  const { keyword, category } = req.query
+  ok(res, db.getSuppliers(keyword as string | undefined, category as string | undefined))
+})
+
+app.get('/api/purchases', (req, res) => {
+  const { keyword, status, supplierId, storeId, startDate, endDate } = req.query
+  const purchases = db.getPurchases({
+    keyword: keyword as string,
+    status: status as any,
+    supplierId: supplierId as string,
+    storeId: storeId as string,
+    startDate: startDate as string,
+    endDate: endDate as string,
+  })
+  ok(res, purchases)
+})
+
+app.get('/api/purchases/:id', (req, res) => {
+  const purchase = db.getPurchaseById(req.params.id)
+  if (!purchase) return fail(res, '采购单不存在', 404)
+  ok(res, purchase)
+})
+
+app.get('/api/purchases/by-no/:purchaseNo', (req, res) => {
+  const purchase = db.getPurchaseByNo(req.params.purchaseNo)
+  if (!purchase) return fail(res, '采购单不存在', 404)
+  ok(res, purchase)
+})
+
+app.post('/api/purchases', (req, res) => {
+  const { supplierId, storeId, items, expectedArrivalTime, reason } = req.body || {}
+  const result = db.createPurchase({
+    supplierId,
+    storeId,
+    items,
+    expectedArrivalTime,
+    reason,
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, result.data, result.message)
+  else fail(res, result.message)
+})
+
+app.put('/api/purchases/:id/approve', (req, res) => {
+  const { remark } = req.body || {}
+  const result = db.approvePurchase({
+    purchaseId: req.params.id,
+    remark,
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, null, result.message)
+  else fail(res, result.message)
+})
+
+app.put('/api/purchases/:id/reject', (req, res) => {
+  const { reason } = req.body || {}
+  const result = db.rejectPurchase({
+    purchaseId: req.params.id,
+    reason: reason || '',
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, null, result.message)
+  else fail(res, result.message)
+})
+
+app.put('/api/purchases/:id/place-order', (req, res) => {
+  const { remark } = req.body || {}
+  const result = db.placePurchaseOrder({
+    purchaseId: req.params.id,
+    remark,
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, null, result.message)
+  else fail(res, result.message)
+})
+
+app.post('/api/purchases/:id/receive', (req, res) => {
+  const { items, remark } = req.body || {}
+  try {
+    const result = db.receivePurchaseItem({
+      purchaseId: req.params.id,
+      items,
+      remark,
+      operator: getOperator(req),
+    })
+    if (result.success) ok(res, null, result.message)
+    else fail(res, result.message)
+  } catch (err: any) {
+    fail(res, err?.message || '收货失败')
+  }
+})
+
+app.put('/api/purchases/:id/cancel', (req, res) => {
+  const { reason } = req.body || {}
+  const result = db.cancelPurchase({
+    purchaseId: req.params.id,
+    reason: reason || '',
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, null, result.message)
+  else fail(res, result.message)
+})
+
 app.use((_req, res) => {
   fail(res, '接口不存在', 404)
 })

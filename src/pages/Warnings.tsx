@@ -18,6 +18,7 @@ import {
   ChevronUp,
   ShoppingCart,
   AlertOctagon,
+  Truck,
 } from 'lucide-react'
 import { formatMoney, maskPhone, orderStatusMap, isOverdue } from '../utils/constants'
 import type { Order } from '../types'
@@ -263,6 +264,19 @@ export default function Warnings() {
                                   >
                                     <ArrowRightLeft size={11} />
                                     调拨
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    className="gap-1 !px-2 !py-1 !text-xs !bg-green-50 !text-green-600 !border-green-200 hover:!bg-green-100"
+                                    onClick={(e) => {
+                                      e?.stopPropagation()
+                                      const suggestQty = Math.max(sw.threshold * 2 - sw.quantity, 10)
+                                      navigate(`/purchases?productId=${p.id}&storeId=${sw.storeId}&quantity=${suggestQty}`)
+                                    }}
+                                  >
+                                    <Truck size={11} />
+                                    采购
                                   </Button>
                                 </div>
                               </div>

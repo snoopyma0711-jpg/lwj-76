@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   Store,
   ArrowRightLeft,
+  ShoppingCart,
 } from 'lucide-react'
 
 const navItems = [
@@ -16,6 +17,7 @@ const navItems = [
   { path: '/verify', label: '到店核销', icon: QrCode },
   { path: '/inventory', label: '库存管理', icon: Package },
   { path: '/transfers', label: '调拨补货', icon: ArrowRightLeft },
+  { path: '/purchases', label: '采购管理', icon: ShoppingCart },
   { path: '/warnings', label: '库存预警', icon: AlertTriangle },
   { path: '/stores', label: '门店信息', icon: Store },
 ]
