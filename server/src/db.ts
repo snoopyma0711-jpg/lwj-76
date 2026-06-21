@@ -1063,6 +1063,10 @@ export function createPurchase(params: CreatePurchaseParams): { success: boolean
     expectedArrivalTime,
     reason: reason.trim(),
     status: 'pending_approval',
+    reconciliationStatus: 'pending_reconciliation',
+    paymentStatus: 'pending_payment',
+    paidAmount: 0,
+    paymentRecords: [],
     statusLogs: [
       {
         id: uuidv4(),
