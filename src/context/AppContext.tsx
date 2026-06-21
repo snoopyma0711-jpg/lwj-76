@@ -206,29 +206,29 @@ interface AppContextValue {
     items: { productId: string; quantity: number }[]
     reason: string
     expectedArrivalTime?: string
-  }) => { success: boolean; message: string; transfer?: Transfer }
+  }) => Promise<{ success: boolean; message: string; transfer?: Transfer }>
   approveTransfer: (params: {
     transfer: Transfer
     remark?: string
-  }) => { success: boolean; message: string }
+  }) => Promise<{ success: boolean; message: string }>
   rejectTransfer: (params: {
     transfer: Transfer
     reason: string
-  }) => { success: boolean; message: string }
+  }) => Promise<{ success: boolean; message: string }>
   processTransferOutbound: (params: {
     transfer: Transfer
     itemsActual?: { productId: string; actualQuantity: number }[]
     remark?: string
-  }) => { success: boolean; message: string }
+  }) => Promise<{ success: boolean; message: string }>
   processTransferInTransit: (params: {
     transfer: Transfer
     remark?: string
-  }) => { success: boolean; message: string }
+  }) => Promise<{ success: boolean; message: string }>
   processTransferInbound: (params: {
     transfer: Transfer
     itemsActual?: { productId: string; actualQuantity: number }[]
     remark?: string
-  }) => { success: boolean; message: string }
+  }) => Promise<{ success: boolean; message: string }>
   getStoreAvailableStock: (storeId: string, productId: string) => number
 }
 

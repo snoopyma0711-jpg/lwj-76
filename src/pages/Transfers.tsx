@@ -146,9 +146,9 @@ export default function Transfers() {
     )
   }
 
-  const submitCreate = () => {
+  const submitCreate = async () => {
     setCreateError('')
-    const res = createTransfer({
+    const res = await createTransfer({
       type: createType,
       fromStoreId,
       toStoreId,
@@ -164,9 +164,9 @@ export default function Transfers() {
     }
   }
 
-  const handleApprove = () => {
+  const handleApprove = async () => {
     if (!selectedTransfer) return
-    const res = approveTransfer({ transfer: selectedTransfer })
+    const res = await approveTransfer({ transfer: selectedTransfer })
     if (res.success) {
       const updated = state.transfers.find((t) => t.id === selectedTransfer.id)
       if (updated) setSelectedTransfer(updated)
@@ -182,10 +182,10 @@ export default function Transfers() {
     setRejectError('')
   }
 
-  const submitReject = () => {
+  const submitReject = async () => {
     setRejectError('')
     if (!selectedTransfer) return
-    const res = rejectTransfer({ transfer: selectedTransfer, reason: rejectReason })
+    const res = await rejectTransfer({ transfer: selectedTransfer, reason: rejectReason })
     if (res.success) {
       setShowRejectModal(false)
       const updated = state.transfers.find((t) => t.id === selectedTransfer.id)
@@ -196,9 +196,9 @@ export default function Transfers() {
     }
   }
 
-  const handleOutbound = () => {
+  const handleOutbound = async () => {
     if (!selectedTransfer) return
-    const res = processTransferOutbound({ transfer: selectedTransfer })
+    const res = await processTransferOutbound({ transfer: selectedTransfer })
     if (res.success) {
       const updated = state.transfers.find((t) => t.id === selectedTransfer.id)
       if (updated) setSelectedTransfer(updated)
@@ -208,9 +208,9 @@ export default function Transfers() {
     }
   }
 
-  const handleInTransit = () => {
+  const handleInTransit = async () => {
     if (!selectedTransfer) return
-    const res = processTransferInTransit({ transfer: selectedTransfer })
+    const res = await processTransferInTransit({ transfer: selectedTransfer })
     if (res.success) {
       const updated = state.transfers.find((t) => t.id === selectedTransfer.id)
       if (updated) setSelectedTransfer(updated)
@@ -220,9 +220,9 @@ export default function Transfers() {
     }
   }
 
-  const handleInbound = () => {
+  const handleInbound = async () => {
     if (!selectedTransfer) return
-    const res = processTransferInbound({ transfer: selectedTransfer })
+    const res = await processTransferInbound({ transfer: selectedTransfer })
     if (res.success) {
       const updated = state.transfers.find((t) => t.id === selectedTransfer.id)
       if (updated) setSelectedTransfer(updated)
