@@ -1,4 +1,4 @@
-import type { Order, OrderStatus, Store, Product, StoreStock, StockRecord, Transfer, TransferType, TransferStatus, Supplier, Purchase, PurchaseStatus, PaymentRecord, PaymentMethod } from '../types'
+import type { Order, OrderStatus, Store, Product, StoreStock, StockRecord, Transfer, TransferType, TransferStatus, Supplier, Purchase, PurchaseStatus, PaymentRecord, PaymentMethod, InventoryCheck, InventoryCheckStatus, InventoryCheckScope } from '../types'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api'
 const OPERATOR_NAME = '张店长'
@@ -292,5 +292,56 @@ export const api = {
   }) => request<{ payment: PaymentRecord; purchase: Purchase }>(`/purchases/${purchaseId}/payment`, {
     method: 'POST',
     body: JSON.stringify(data),
+  }),
+
+  getInventoryChecks: (params?: {
+    keyword?: string
+    status?: InventoryCheckStatus | 'all'
+    storeId?: string
+    startDate?: string
+    endDate?: string
+  }) => {
+    const qs = new URLSearchParams()
+    if (params?.keyword) qs.set('keyword', params.keyword)
+    if (params?.status) qs.set('status', params.status)
+    if (params?.storeId) qs.set('storeId', params.storeId)
+    if (params?.startDate) qs.set('startDate', params.startDate)
+    if (params?.endDate) qs.set('endDate', params.endDate)
+    return request<InventoryCheck[]>(`/inventory-checks${qs.toString() ? '?' + qs.toString() : ''}`)
+  },
+  getInventoryCheckById: (id: string) => request<InventoryCheck>(`/inventory-checks/${id}`),
+  createInventoryCheck: (data: {
+    storeId: string
+    scope: InventoryCheckScope
+    scopeCategory?: string
+    productIds?: string[]
+    scheduledTime: string
+    remark?: string
+  }) => request<InventoryCheck>('/inventory-checks', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  startInventoryCheck: (checkId: string) => request<InventoryCheck>(`/inventory-checks/${checkId}/start`, {
+    method: 'PUT',
+  }),
+  saveInventoryCheckProgress: (checkId: string, data: {
+    items: { productId: string; actualQuantity: number | null }[]
+  }) => request<InventoryCheck>(`/inventory-checks/${checkId}/save-progress`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  confirmInventoryCheck: (checkId: string) => request<InventoryCheck>(`/inventory-checks/${checkId}/confirm`, {
+    method: 'PUT',
+  }),
+  handleInventoryCheckDiscrepancy: (checkId: string, data: {
+    productId: string
+    handleReason: string
+  }) => request<InventoryCheck>(`/inventory-checks/${checkId}/handle-discrepancy`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  cancelInventoryCheck: (checkId: string, reason: string) => request<InventoryCheck>(`/inventory-checks/${checkId}/cancel`, {
+    method: 'PUT',
+    body: JSON.stringify({ reason }),
   }),
 }

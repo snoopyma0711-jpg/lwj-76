@@ -1,6 +1,6 @@
-import type { Database, Order, OrderStatus, OrderItem, StoreStock, StockRecord, Transfer, TransferType, TransferStatus, TransferItem, Supplier, Purchase, PurchaseStatus, PurchaseItem, PurchaseReceiveItem, PaymentRecord, PaymentMethod, ReconciliationStatus, PaymentStatus } from './types'
+import type { Database, Order, OrderStatus, OrderItem, StoreStock, StockRecord, Transfer, TransferType, TransferStatus, TransferItem, Supplier, Purchase, PurchaseStatus, PurchaseItem, PurchaseReceiveItem, PaymentRecord, PaymentMethod, ReconciliationStatus, PaymentStatus, InventoryCheck, InventoryCheckStatus, InventoryCheckItem, InventoryCheckDiscrepancy, InventoryCheckScope } from './types'
 import { createMockDatabase } from './mockData'
-import { nowStr, generateOrderNo, isValidPhone, orderStatusMap, generateTransferNo, transferStatusMap, generatePurchaseNo, purchaseStatusMap } from './utils'
+import { nowStr, generateOrderNo, isValidPhone, orderStatusMap, generateTransferNo, transferStatusMap, generatePurchaseNo, purchaseStatusMap, generateCheckNo, checkStatusMap } from './utils'
 import { v4 as uuidv4 } from 'uuid'
 
 const db: Database = createMockDatabase()
@@ -1464,4 +1464,363 @@ export function createPaymentRecord(params: {
   db.purchases[idx] = updated
 
   return { success: true, message: '付款登记成功', data: { payment: paymentRecord, purchase: updated } }
+}
+
+export function getInventoryChecks(params?: {
+  keyword?: string
+  status?: InventoryCheckStatus | 'all'
+  storeId?: string
+  startDate?: string
+  endDate?: string
+}): InventoryCheck[] {
+  let list = db.inventoryChecks.slice()
+  if (params?.keyword?.trim()) {
+    const kw = params.keyword.trim().toLowerCase()
+    list = list.filter(
+      (c) =>
+        c.checkNo.toLowerCase().includes(kw) ||
+        c.storeName.toLowerCase().includes(kw) ||
+        c.items.some((it) => it.productName.toLowerCase().includes(kw) || it.sku.toLowerCase().includes(kw)),
+    )
+  }
+  if (params?.status && params.status !== 'all') {
+    list = list.filter((c) => c.status === params.status)
+  }
+  if (params?.storeId) list = list.filter((c) => c.storeId === params.storeId)
+  if (params?.startDate) list = list.filter((c) => c.createdAt.slice(0, 10) >= params.startDate!)
+  if (params?.endDate) list = list.filter((c) => c.createdAt.slice(0, 10) <= params.endDate!)
+  return list.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+}
+
+export function getInventoryCheckById(id: string): InventoryCheck | undefined {
+  return db.inventoryChecks.find((c) => c.id === id)
+}
+
+export function getInventoryCheckByNo(checkNo: string): InventoryCheck | undefined {
+  return db.inventoryChecks.find((c) => c.checkNo === checkNo)
+}
+
+export function createInventoryCheck(params: {
+  storeId: string
+  scope: InventoryCheckScope
+  scopeCategory?: string
+  productIds?: string[]
+  scheduledTime: string
+  remark?: string
+  operator?: string
+}): { success: boolean; message: string; data?: InventoryCheck } {
+  const { storeId, scope, scopeCategory, productIds, scheduledTime, remark, operator = '系统' } = params
+
+  if (!storeId) return { success: false, message: '请选择门店' }
+  const store = db.stores.find((s) => s.id === storeId)
+  if (!store) return { success: false, message: '门店不存在' }
+  if (!scheduledTime) return { success: false, message: '请选择盘点时间' }
+  if (!scope) return { success: false, message: '请选择盘点范围' }
+
+  let checkProducts = db.products.slice()
+  if (scope === 'category') {
+    if (!scopeCategory?.trim()) return { success: false, message: '请选择盘点商品分类' }
+    checkProducts = checkProducts.filter((p) => p.category === scopeCategory)
+    if (checkProducts.length === 0) return { success: false, message: '该分类下没有商品' }
+  } else if (scope === 'partial') {
+    if (!productIds || productIds.length === 0) return { success: false, message: '请选择盘点商品' }
+    checkProducts = checkProducts.filter((p) => productIds.includes(p.id))
+    if (checkProducts.length === 0) return { success: false, message: '所选商品不存在' }
+  }
+
+  const items: InventoryCheckItem[] = checkProducts.map((p) => {
+    const stock = db.stocks.find((s) => s.productId === p.id && s.storeId === storeId)
+    return {
+      productId: p.id,
+      productName: p.name,
+      sku: p.sku,
+      systemQuantity: stock?.quantity ?? 0,
+      actualQuantity: null,
+      unit: p.unit,
+    }
+  })
+
+  const time = nowStr()
+  const check: InventoryCheck = {
+    id: uuidv4(),
+    checkNo: generateCheckNo(db.inventoryChecks.length),
+    storeId,
+    storeName: store.name,
+    scope,
+    scopeCategory: scope === 'category' ? scopeCategory : undefined,
+    scheduledTime,
+    items,
+    discrepancies: [],
+    status: 'pending',
+    statusLogs: [
+      {
+        id: uuidv4(),
+        status: 'pending',
+        time,
+        operator,
+        remark: scope === 'full' ? '创建全店盘点' : scope === 'category' ? `创建分类盘点（${scopeCategory}）` : '创建部分商品盘点',
+      },
+    ],
+    createdAt: time,
+    createdBy: operator,
+    operator,
+    remark: remark?.trim() || undefined,
+  }
+
+  db.inventoryChecks.unshift(check)
+  return { success: true, message: '盘点任务创建成功', data: check }
+}
+
+export function startInventoryCheck(params: {
+  checkId: string
+  operator?: string
+}): { success: boolean; message: string; data?: InventoryCheck } {
+  const check = db.inventoryChecks.find((c) => c.id === params.checkId)
+  if (!check) return { success: false, message: '盘点任务不存在' }
+  if (check.status !== 'pending') {
+    return { success: false, message: '只有待开始的盘点任务才能开始' }
+  }
+  const time = nowStr()
+  const idx = db.inventoryChecks.findIndex((c) => c.id === params.checkId)
+
+  for (const item of check.items) {
+    const stock = db.stocks.find((s) => s.productId === item.productId && s.storeId === check.storeId)
+    item.systemQuantity = stock?.quantity ?? 0
+  }
+
+  const updated: InventoryCheck = {
+    ...check,
+    status: 'checking',
+    startedTime: time,
+    items: check.items.map((it) => {
+      const stock = db.stocks.find((s) => s.productId === it.productId && s.storeId === check.storeId)
+      return { ...it, systemQuantity: stock?.quantity ?? 0 }
+    }),
+    statusLogs: [
+      ...check.statusLogs,
+      {
+        id: uuidv4(),
+        status: 'checking',
+        time,
+        operator: params.operator || '系统',
+        remark: '开始盘点',
+      },
+    ],
+  }
+  db.inventoryChecks[idx] = updated
+  return { success: true, message: '盘点已开始', data: updated }
+}
+
+export function saveInventoryCheckProgress(params: {
+  checkId: string
+  items: { productId: string; actualQuantity: number | null }[]
+  operator?: string
+}): { success: boolean; message: string; data?: InventoryCheck } {
+  const check = db.inventoryChecks.find((c) => c.id === params.checkId)
+  if (!check) return { success: false, message: '盘点任务不存在' }
+  if (check.status !== 'checking') {
+    return { success: false, message: '只有盘点中的任务才能保存进度' }
+  }
+
+  for (const item of params.items) {
+    if (item.actualQuantity !== null && item.actualQuantity < 0) {
+      const checkItem = check.items.find((i) => i.productId === item.productId)
+      return { success: false, message: `商品「${checkItem?.productName}」实际数量不能为负数` }
+    }
+  }
+
+  const updatedItems = check.items.map((it) => {
+    const input = params.items.find((i) => i.productId === it.productId)
+    return { ...it, actualQuantity: input?.actualQuantity ?? it.actualQuantity }
+  })
+
+  const idx = db.inventoryChecks.findIndex((c) => c.id === params.checkId)
+  const updated: InventoryCheck = {
+    ...check,
+    items: updatedItems,
+    statusLogs: [
+      ...check.statusLogs,
+      {
+        id: uuidv4(),
+        status: 'checking',
+        time: nowStr(),
+        operator: params.operator || '系统',
+        remark: '保存盘点进度',
+      },
+    ],
+  }
+  db.inventoryChecks[idx] = updated
+  return { success: true, message: '盘点进度已保存', data: updated }
+}
+
+export function confirmInventoryCheck(params: {
+  checkId: string
+  operator?: string
+}): { success: boolean; message: string; data?: InventoryCheck } {
+  const check = db.inventoryChecks.find((c) => c.id === params.checkId)
+  if (!check) return { success: false, message: '盘点任务不存在' }
+  if (check.status !== 'checking') {
+    return { success: false, message: '只有盘点中的任务才能确认' }
+  }
+
+  const unfinished = check.items.filter((it) => it.actualQuantity === null)
+  if (unfinished.length > 0) {
+    return { success: false, message: `还有 ${unfinished.length} 件商品未录入实际数量` }
+  }
+
+  const discrepancies: InventoryCheckDiscrepancy[] = check.items
+    .filter((it) => it.actualQuantity !== null && it.actualQuantity !== it.systemQuantity)
+    .map((it) => ({
+      productId: it.productId,
+      productName: it.productName,
+      sku: it.sku,
+      systemQuantity: it.systemQuantity,
+      actualQuantity: it.actualQuantity!,
+      difference: it.actualQuantity! - it.systemQuantity,
+      unit: it.unit,
+      handleStatus: 'pending' as const,
+    }))
+
+  const time = nowStr()
+  const idx = db.inventoryChecks.findIndex((c) => c.id === params.checkId)
+  const updated: InventoryCheck = {
+    ...check,
+    status: 'pending_confirm',
+    discrepancies,
+    statusLogs: [
+      ...check.statusLogs,
+      {
+        id: uuidv4(),
+        status: 'pending_confirm',
+        time,
+        operator: params.operator || '系统',
+        remark: discrepancies.length > 0 ? `盘点完成，发现 ${discrepancies.length} 项差异，待处理` : '盘点完成，无差异',
+      },
+    ],
+  }
+  db.inventoryChecks[idx] = updated
+  return { success: true, message: discrepancies.length > 0 ? `盘点已确认，发现 ${discrepancies.length} 项差异` : '盘点已确认，无差异', data: updated }
+}
+
+export function handleInventoryCheckDiscrepancy(params: {
+  checkId: string
+  productId: string
+  handleReason: string
+  operator?: string
+}): { success: boolean; message: string; data?: InventoryCheck } {
+  const check = db.inventoryChecks.find((c) => c.id === params.checkId)
+  if (!check) return { success: false, message: '盘点任务不存在' }
+  if (check.status !== 'pending_confirm') {
+    return { success: false, message: '只有待确认的盘点任务才能处理差异' }
+  }
+  if (!params.handleReason?.trim()) {
+    return { success: false, message: '请填写差异处理原因' }
+  }
+  if (params.handleReason.length > 500) {
+    return { success: false, message: '处理原因不能超过500字' }
+  }
+
+  const discrepancy = check.discrepancies.find((d) => d.productId === params.productId)
+  if (!discrepancy) return { success: false, message: '差异记录不存在' }
+  if (discrepancy.handleStatus === 'handled') {
+    return { success: false, message: '该差异已处理' }
+  }
+
+  const time = nowStr()
+  const updatedDiscrepancies = check.discrepancies.map((d) =>
+    d.productId === params.productId
+      ? { ...d, handleStatus: 'handled' as const, handleReason: params.handleReason.trim(), handleOperator: params.operator || '系统', handleTime: time }
+      : d,
+  )
+
+  const allHandled = updatedDiscrepancies.every((d) => d.handleStatus === 'handled')
+
+  const idx = db.inventoryChecks.findIndex((c) => c.id === params.checkId)
+  const updated: InventoryCheck = {
+    ...check,
+    discrepancies: updatedDiscrepancies,
+    statusLogs: [
+      ...check.statusLogs,
+      {
+        id: uuidv4(),
+        status: allHandled ? 'completed' : 'pending_confirm',
+        time,
+        operator: params.operator || '系统',
+        remark: `处理差异：${discrepancy.productName}（${discrepancy.difference > 0 ? '+' : ''}${discrepancy.difference}），原因：${params.handleReason.trim()}`,
+      },
+    ],
+  }
+
+  if (allHandled) {
+    updated.status = 'completed'
+    updated.completedTime = time
+
+    for (const disc of updatedDiscrepancies) {
+      const stockIdx = db.stocks.findIndex((s) => s.productId === disc.productId && s.storeId === check.storeId)
+      if (stockIdx > -1) {
+        const stock = db.stocks[stockIdx]
+        const beforeQty = stock.quantity
+        const afterQty = disc.actualQuantity
+        db.stocks[stockIdx] = {
+          ...stock,
+          quantity: afterQty,
+          updatedAt: time,
+        }
+        const product = db.products.find((p) => p.id === disc.productId)
+        const record: StockRecord = {
+          id: uuidv4(),
+          time,
+          productId: disc.productId,
+          productName: disc.productName,
+          storeId: check.storeId,
+          storeName: check.storeName,
+          type: 'adjust',
+          quantity: afterQty - beforeQty,
+          beforeQuantity: beforeQty,
+          afterQuantity: afterQty,
+          operator: params.operator || '系统',
+          relatedOrderNo: check.checkNo,
+          remark: `盘点调整：${disc.handleReason}`,
+        }
+        db.stockRecords.unshift(record)
+      }
+    }
+  }
+
+  db.inventoryChecks[idx] = updated
+  return { success: true, message: allHandled ? '差异已全部处理，库存已更新，盘点完成' : '差异已处理', data: updated }
+}
+
+export function cancelInventoryCheck(params: {
+  checkId: string
+  reason: string
+  operator?: string
+}): { success: boolean; message: string; data?: InventoryCheck } {
+  const check = db.inventoryChecks.find((c) => c.id === params.checkId)
+  if (!check) return { success: false, message: '盘点任务不存在' }
+  if (['completed', 'cancelled'].includes(check.status)) {
+    return { success: false, message: `当前状态为「${checkStatusMap[check.status].label}」，无法取消` }
+  }
+  if (!params.reason?.trim()) return { success: false, message: '请填写取消原因' }
+  if (params.reason.length > 500) return { success: false, message: '取消原因不能超过500字' }
+
+  const time = nowStr()
+  const idx = db.inventoryChecks.findIndex((c) => c.id === params.checkId)
+  const updated: InventoryCheck = {
+    ...check,
+    status: 'cancelled',
+    cancelReason: params.reason.trim(),
+    statusLogs: [
+      ...check.statusLogs,
+      {
+        id: uuidv4(),
+        status: 'cancelled',
+        time,
+        operator: params.operator || '系统',
+        remark: params.reason.trim(),
+      },
+    ],
+  }
+  db.inventoryChecks[idx] = updated
+  return { success: true, message: '盘点任务已取消', data: updated }
 }

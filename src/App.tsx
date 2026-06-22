@@ -9,6 +9,7 @@ import Warnings from './pages/Warnings'
 import Stores from './pages/Stores'
 import Purchases from './pages/Purchases'
 import PaymentReconciliation from './pages/PaymentReconciliation'
+import InventoryCheckPage from './pages/InventoryCheck'
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="/orders" element={<Orders />} />
         <Route path="/verify" element={<Verify />} />
         <Route path="/inventory" element={<Inventory />} />
+        <Route path="/inventory-check" element={<InventoryCheckPage />} />
         <Route path="/transfers" element={<Transfers />} />
         <Route path="/purchases" element={<Purchases />} />
         <Route path="/payment-reconciliation" element={<PaymentReconciliation />} />

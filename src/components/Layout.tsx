@@ -10,6 +10,7 @@ import {
   ArrowRightLeft,
   ShoppingCart,
   Receipt,
+  ClipboardCheck,
 } from 'lucide-react'
 
 const navItems = [
@@ -17,6 +18,7 @@ const navItems = [
   { path: '/orders', label: '订单管理', icon: ClipboardList },
   { path: '/verify', label: '到店核销', icon: QrCode },
   { path: '/inventory', label: '库存管理', icon: Package },
+  { path: '/inventory-check', label: '门店盘点', icon: ClipboardCheck },
   { path: '/transfers', label: '调拨补货', icon: ArrowRightLeft },
   { path: '/purchases', label: '采购管理', icon: ShoppingCart },
   { path: '/payment-reconciliation', label: '对账付款', icon: Receipt },

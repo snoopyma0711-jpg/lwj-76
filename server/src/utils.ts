@@ -87,3 +87,18 @@ export const paymentMethodMap: Record<string, string> = {
   cash: '现金',
   other: '其他',
 }
+
+export const checkStatusMap: Record<string, { label: string; color: string; bgColor: string }> = {
+  pending: { label: '待开始', color: 'text-gray-700', bgColor: 'bg-gray-50 border-gray-200' },
+  checking: { label: '盘点中', color: 'text-blue-700', bgColor: 'bg-blue-50 border-blue-200' },
+  pending_confirm: { label: '待确认', color: 'text-amber-700', bgColor: 'bg-amber-50 border-amber-200' },
+  completed: { label: '已完成', color: 'text-green-700', bgColor: 'bg-green-50 border-green-200' },
+  cancelled: { label: '已取消', color: 'text-red-700', bgColor: 'bg-red-50 border-red-200' },
+}
+
+export function generateCheckNo(checkCount: number): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const seq = String(checkCount + 1).padStart(4, '0')
+  return `IC${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${seq}`
+}

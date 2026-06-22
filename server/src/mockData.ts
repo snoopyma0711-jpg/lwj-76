@@ -1,5 +1,5 @@
-import type { Database, Store, Product, Order, StoreStock, StockRecord, OrderItem, ContactRecord, OrderStatusLog, OrderStatus, Transfer, TransferStatus, TransferType, TransferStatusLog, TransferItem, Supplier, Purchase, PurchaseStatus, PurchaseItem, PurchaseReceiveItem, PurchaseStatusLog, PaymentRecord, ReconciliationStatus, PaymentStatus, PaymentMethod } from './types'
-import { formatDate, generateTransferNo, generatePurchaseNo } from './utils'
+import type { Database, Store, Product, Order, StoreStock, StockRecord, OrderItem, ContactRecord, OrderStatusLog, OrderStatus, Transfer, TransferStatus, TransferType, TransferStatusLog, TransferItem, Supplier, Purchase, PurchaseStatus, PurchaseItem, PurchaseReceiveItem, PurchaseStatusLog, PaymentRecord, ReconciliationStatus, PaymentStatus, PaymentMethod, InventoryCheck, InventoryCheckItem, InventoryCheckDiscrepancy, InventoryCheckStatusLog, InventoryCheckStatus, InventoryCheckScope } from './types'
+import { formatDate, generateTransferNo, generatePurchaseNo, generateCheckNo } from './utils'
 
 const storeList = [
   { id: 'store-001', name: '朝阳大悦城店', address: '北京市朝阳区朝阳北路101号大悦城B1层', manager: '张店长', phone: '010-85551234' },
@@ -720,5 +720,151 @@ export function createMockDatabase(): Database {
   const transfers: Transfer[] = generateMockTransfers(stores, products)
   const { purchases, paymentRecords } = generateMockPurchases(stores, products, suppliers)
 
-  return { stores, products, orders, stocks, stockRecords, transfers, suppliers, purchases, paymentRecords }
+  const inventoryChecks: InventoryCheck[] = generateMockInventoryChecks(stores, products, stocks)
+
+  return { stores, products, orders, stocks, stockRecords, transfers, suppliers, purchases, paymentRecords, inventoryChecks }
+}
+
+function generateMockInventoryChecks(stores: Store[], products: Product[], stocks: StoreStock[]): InventoryCheck[] {
+  const checks: InventoryCheck[] = []
+  const now = new Date()
+
+  const check1Store = stores[0]
+  const check1Products = products.slice(0, 5)
+  const check1Time = new Date(now)
+  check1Time.setDate(check1Time.getDate() - 3)
+  check1Time.setHours(9, 0, 0, 0)
+  const check1Items: InventoryCheckItem[] = check1Products.map((p) => {
+    const stock = stocks.find((s) => s.productId === p.id && s.storeId === check1Store.id)
+    const sysQty = stock?.quantity ?? 0
+    return {
+      productId: p.id,
+      productName: p.name,
+      sku: p.sku,
+      systemQuantity: sysQty,
+      actualQuantity: sysQty + (Math.random() > 0.5 ? rand(-3, 3) : 0),
+      unit: p.unit,
+    }
+  })
+  const check1Discrepancies: InventoryCheckDiscrepancy[] = check1Items
+    .filter((it) => it.actualQuantity !== null && it.actualQuantity !== it.systemQuantity)
+    .map((it) => ({
+      productId: it.productId,
+      productName: it.productName,
+      sku: it.sku,
+      systemQuantity: it.systemQuantity,
+      actualQuantity: it.actualQuantity!,
+      difference: it.actualQuantity! - it.systemQuantity,
+      unit: it.unit,
+      handleStatus: 'handled' as const,
+      handleReason: '盘点误差调整',
+      handleOperator: '张店长',
+      handleTime: formatDate(new Date(check1Time.getTime() + 7200000)),
+    }))
+  checks.push({
+    id: 'ic-001',
+    checkNo: 'IC202406120001',
+    storeId: check1Store.id,
+    storeName: check1Store.name,
+    scope: 'full',
+    scheduledTime: formatDate(check1Time),
+    startedTime: formatDate(check1Time),
+    completedTime: formatDate(new Date(check1Time.getTime() + 7200000)),
+    items: check1Items,
+    discrepancies: check1Discrepancies,
+    status: 'completed',
+    statusLogs: [
+      { id: 'icl-001-1', status: 'pending', time: formatDate(new Date(check1Time.getTime() - 86400000)), operator: '张店长', remark: '创建全店盘点任务' },
+      { id: 'icl-001-2', status: 'checking', time: formatDate(check1Time), operator: '张店长', remark: '开始盘点' },
+      { id: 'icl-001-3', status: 'pending_confirm', time: formatDate(new Date(check1Time.getTime() + 3600000)), operator: '张店长', remark: '盘点录入完成，等待确认' },
+      { id: 'icl-001-4', status: 'completed', time: formatDate(new Date(check1Time.getTime() + 7200000)), operator: '张店长', remark: '盘点已确认，差异已处理' },
+    ],
+    createdAt: formatDate(new Date(check1Time.getTime() - 86400000)),
+    createdBy: '张店长',
+    operator: '张店长',
+  })
+
+  const check2Store = stores[1]
+  const check2Products = products.slice(2, 7)
+  const check2Time = new Date(now)
+  check2Time.setDate(check2Time.getDate() - 1)
+  check2Time.setHours(14, 0, 0, 0)
+  const check2Items: InventoryCheckItem[] = check2Products.map((p) => {
+    const stock = stocks.find((s) => s.productId === p.id && s.storeId === check2Store.id)
+    const sysQty = stock?.quantity ?? 0
+    return {
+      productId: p.id,
+      productName: p.name,
+      sku: p.sku,
+      systemQuantity: sysQty,
+      actualQuantity: sysQty + rand(-2, 2),
+      unit: p.unit,
+    }
+  })
+  const check2Discrepancies: InventoryCheckDiscrepancy[] = check2Items
+    .filter((it) => it.actualQuantity !== null && it.actualQuantity !== it.systemQuantity)
+    .map((it) => ({
+      productId: it.productId,
+      productName: it.productName,
+      sku: it.sku,
+      systemQuantity: it.systemQuantity,
+      actualQuantity: it.actualQuantity!,
+      difference: it.actualQuantity! - it.systemQuantity,
+      unit: it.unit,
+      handleStatus: 'pending' as const,
+    }))
+  checks.push({
+    id: 'ic-002',
+    checkNo: 'IC202406140001',
+    storeId: check2Store.id,
+    storeName: check2Store.name,
+    scope: 'category',
+    scopeCategory: '饮品',
+    scheduledTime: formatDate(check2Time),
+    startedTime: formatDate(check2Time),
+    items: check2Items,
+    discrepancies: check2Discrepancies,
+    status: 'pending_confirm',
+    statusLogs: [
+      { id: 'icl-002-1', status: 'pending', time: formatDate(new Date(check2Time.getTime() - 43200000)), operator: '李店长', remark: '创建饮品分类盘点' },
+      { id: 'icl-002-2', status: 'checking', time: formatDate(check2Time), operator: '李店长', remark: '开始盘点' },
+      { id: 'icl-002-3', status: 'pending_confirm', time: formatDate(new Date(check2Time.getTime() + 3600000)), operator: '李店长', remark: '盘点录入完成' },
+    ],
+    createdAt: formatDate(new Date(check2Time.getTime() - 43200000)),
+    createdBy: '李店长',
+    operator: '李店长',
+  })
+
+  const check3Time = new Date(now)
+  check3Time.setDate(check3Time.getDate() + 1)
+  check3Time.setHours(10, 0, 0, 0)
+  checks.push({
+    id: 'ic-003',
+    checkNo: 'IC202406160001',
+    storeId: stores[2].id,
+    storeName: stores[2].name,
+    scope: 'partial',
+    scheduledTime: formatDate(check3Time),
+    items: products.slice(0, 3).map((p) => {
+      const stock = stocks.find((s) => s.productId === p.id && s.storeId === stores[2].id)
+      return {
+        productId: p.id,
+        productName: p.name,
+        sku: p.sku,
+        systemQuantity: stock?.quantity ?? 0,
+        actualQuantity: null,
+        unit: p.unit,
+      }
+    }),
+    discrepancies: [],
+    status: 'pending',
+    statusLogs: [
+      { id: 'icl-003-1', status: 'pending', time: formatDate(now), operator: '王店长', remark: '创建部分商品盘点' },
+    ],
+    createdAt: formatDate(now),
+    createdBy: '王店长',
+    operator: '王店长',
+  })
+
+  return checks
 }

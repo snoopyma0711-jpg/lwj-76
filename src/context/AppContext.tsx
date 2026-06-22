@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, ReactNode, useEffect } from 'react'
-import type { AppState, AppAction, Order, StoreStock, StockRecord, Product, Transfer, TransferType, TransferStatus, TransferItem, Purchase, PurchaseStatus, Supplier, PaymentRecord, PaymentMethod } from '../types'
+import type { AppState, AppAction, Order, StoreStock, StockRecord, Product, Transfer, TransferType, TransferStatus, TransferItem, Purchase, PurchaseStatus, Supplier, PaymentRecord, PaymentMethod, InventoryCheck, InventoryCheckScope } from '../types'
 import { mockStores, mockProducts, mockOrders, mockStocks, mockStockRecords, mockTransfers } from '../data/mockData'
 import { orderStatusMap } from '../utils/constants'
 import { api } from '../services/api'
@@ -13,6 +13,7 @@ const initialState: AppState = {
   transfers: mockTransfers,
   suppliers: [],
   purchases: [],
+  inventoryChecks: [],
   currentUser: {
     name: '张店长',
     role: 'manager',
@@ -146,6 +147,23 @@ function reducer(state: AppState, action: AppAction): AppState {
         ...state,
         purchases: state.purchases.map((p) =>
           p.id === action.payload.id ? action.payload : p,
+        ),
+      }
+    }
+    case 'SET_INVENTORY_CHECKS': {
+      return { ...state, inventoryChecks: action.payload }
+    }
+    case 'ADD_INVENTORY_CHECK': {
+      return {
+        ...state,
+        inventoryChecks: [action.payload, ...state.inventoryChecks],
+      }
+    }
+    case 'UPDATE_INVENTORY_CHECK': {
+      return {
+        ...state,
+        inventoryChecks: state.inventoryChecks.map((c) =>
+          c.id === action.payload.id ? action.payload : c,
         ),
       }
     }
@@ -293,6 +311,30 @@ interface AppContextValue {
     paymentMethod: PaymentMethod
     remark?: string
   }) => Promise<{ success: boolean; message: string; data?: { payment: PaymentRecord; purchase: Purchase } }>
+  refreshInventoryChecks: () => Promise<void>
+  createInventoryCheck: (params: {
+    storeId: string
+    scope: InventoryCheckScope
+    scopeCategory?: string
+    productIds?: string[]
+    scheduledTime: string
+    remark?: string
+  }) => Promise<{ success: boolean; message: string; data?: InventoryCheck }>
+  startInventoryCheck: (check: InventoryCheck) => Promise<{ success: boolean; message: string; data?: InventoryCheck }>
+  saveInventoryCheckProgress: (params: {
+    check: InventoryCheck
+    items: { productId: string; actualQuantity: number | null }[]
+  }) => Promise<{ success: boolean; message: string; data?: InventoryCheck }>
+  confirmInventoryCheck: (check: InventoryCheck) => Promise<{ success: boolean; message: string; data?: InventoryCheck }>
+  handleInventoryCheckDiscrepancy: (params: {
+    check: InventoryCheck
+    productId: string
+    handleReason: string
+  }) => Promise<{ success: boolean; message: string; data?: InventoryCheck }>
+  cancelInventoryCheck: (params: {
+    check: InventoryCheck
+    reason: string
+  }) => Promise<{ success: boolean; message: string; data?: InventoryCheck }>
 }
 
 const AppContext = createContext<AppContextValue | undefined>(undefined)
@@ -304,7 +346,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let cancelled = false
 
     const loadInitialData = async () => {
-      const [storesRes, productsRes, ordersRes, stocksRes, stockRecordsRes, transfersRes, suppliersRes, purchasesRes] = await Promise.allSettled([
+      const [storesRes, productsRes, ordersRes, stocksRes, stockRecordsRes, transfersRes, suppliersRes, purchasesRes, inventoryChecksRes] = await Promise.allSettled([
         api.getStores(),
         api.getProducts(),
         api.getOrders(),
@@ -313,6 +355,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         api.getTransfers(),
         api.getSuppliers(),
         api.getPurchases(),
+        api.getInventoryChecks(),
       ])
 
       if (cancelled) return
@@ -340,6 +383,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       if (purchasesRes.status === 'fulfilled' && purchasesRes.value.success && purchasesRes.value.data) {
         dispatch({ type: 'SET_PURCHASES', payload: purchasesRes.value.data })
+      }
+      if (inventoryChecksRes.status === 'fulfilled' && inventoryChecksRes.value.success && inventoryChecksRes.value.data) {
+        dispatch({ type: 'SET_INVENTORY_CHECKS', payload: inventoryChecksRes.value.data })
       }
     }
 
@@ -1059,6 +1105,78 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return { success: false, message: res.message }
   }
 
+  const refreshInventoryChecks: AppContextValue['refreshInventoryChecks'] = async () => {
+    const res = await api.getInventoryChecks()
+    if (res.success && res.data) {
+      dispatch({ type: 'SET_INVENTORY_CHECKS', payload: res.data })
+    }
+  }
+
+  const refreshInventoryCheckStocks = async () => {
+    const [stocksRes, recordsRes] = await Promise.all([api.getStocks(), api.getStockRecords()])
+    if (stocksRes.success && stocksRes.data) {
+      dispatch({ type: 'SET_STOCKS', payload: stocksRes.data })
+    }
+    if (recordsRes.success && recordsRes.data) {
+      dispatch({ type: 'SET_STOCK_RECORDS', payload: recordsRes.data })
+    }
+  }
+
+  const createInventoryCheck: AppContextValue['createInventoryCheck'] = async (params) => {
+    const res = await api.createInventoryCheck(params)
+    if (res.success && res.data) {
+      dispatch({ type: 'ADD_INVENTORY_CHECK', payload: res.data })
+      return { success: true, message: res.message, data: res.data }
+    }
+    return { success: false, message: res.message }
+  }
+
+  const startInventoryCheck: AppContextValue['startInventoryCheck'] = async (check) => {
+    const res = await api.startInventoryCheck(check.id)
+    if (res.success && res.data) {
+      dispatch({ type: 'UPDATE_INVENTORY_CHECK', payload: res.data })
+      return { success: true, message: res.message, data: res.data }
+    }
+    return { success: false, message: res.message }
+  }
+
+  const saveInventoryCheckProgress: AppContextValue['saveInventoryCheckProgress'] = async ({ check, items }) => {
+    const res = await api.saveInventoryCheckProgress(check.id, { items })
+    if (res.success && res.data) {
+      dispatch({ type: 'UPDATE_INVENTORY_CHECK', payload: res.data })
+      return { success: true, message: res.message, data: res.data }
+    }
+    return { success: false, message: res.message }
+  }
+
+  const confirmInventoryCheck: AppContextValue['confirmInventoryCheck'] = async (check) => {
+    const res = await api.confirmInventoryCheck(check.id)
+    if (res.success && res.data) {
+      dispatch({ type: 'UPDATE_INVENTORY_CHECK', payload: res.data })
+      return { success: true, message: res.message, data: res.data }
+    }
+    return { success: false, message: res.message }
+  }
+
+  const handleInventoryCheckDiscrepancy: AppContextValue['handleInventoryCheckDiscrepancy'] = async ({ check, productId, handleReason }) => {
+    const res = await api.handleInventoryCheckDiscrepancy(check.id, { productId, handleReason })
+    if (res.success && res.data) {
+      dispatch({ type: 'UPDATE_INVENTORY_CHECK', payload: res.data })
+      await refreshInventoryCheckStocks()
+      return { success: true, message: res.message, data: res.data }
+    }
+    return { success: false, message: res.message }
+  }
+
+  const cancelInventoryCheck: AppContextValue['cancelInventoryCheck'] = async ({ check, reason }) => {
+    const res = await api.cancelInventoryCheck(check.id, reason)
+    if (res.success && res.data) {
+      dispatch({ type: 'UPDATE_INVENTORY_CHECK', payload: res.data })
+      return { success: true, message: res.message, data: res.data }
+    }
+    return { success: false, message: res.message }
+  }
+
   return (
     <AppContext.Provider
       value={{
@@ -1094,6 +1212,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         cancelPurchase,
         reconcilePurchase,
         createPaymentRecord,
+        refreshInventoryChecks,
+        createInventoryCheck,
+        startInventoryCheck,
+        saveInventoryCheckProgress,
+        confirmInventoryCheck,
+        handleInventoryCheckDiscrepancy,
+        cancelInventoryCheck,
       }}
     >
       {children}

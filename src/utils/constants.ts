@@ -1,4 +1,4 @@
-import type { OrderStatus, TransferStatus, TransferType, PurchaseStatus, ReconciliationStatus, PaymentStatus, PaymentMethod } from '../types'
+import type { OrderStatus, TransferStatus, TransferType, PurchaseStatus, ReconciliationStatus, PaymentStatus, PaymentMethod, InventoryCheckStatus, InventoryCheckScope } from '../types'
 
 export const transferTypeMap: Record<TransferType, { label: string; color: string; bgColor: string }> = {
   replenish: { label: '补货申请', color: 'text-blue-700', bgColor: 'bg-blue-50 border-blue-200' },
@@ -108,4 +108,18 @@ export const paymentMethodMap: Record<PaymentMethod, string> = {
   wechat: '微信支付',
   cash: '现金',
   other: '其他',
+}
+
+export const checkStatusMap: Record<InventoryCheckStatus, { label: string; color: string; bgColor: string }> = {
+  pending: { label: '待开始', color: 'text-gray-700', bgColor: 'bg-gray-50 border-gray-200' },
+  checking: { label: '盘点中', color: 'text-blue-700', bgColor: 'bg-blue-50 border-blue-200' },
+  pending_confirm: { label: '待确认', color: 'text-amber-700', bgColor: 'bg-amber-50 border-amber-200' },
+  completed: { label: '已完成', color: 'text-green-700', bgColor: 'bg-green-50 border-green-200' },
+  cancelled: { label: '已取消', color: 'text-red-700', bgColor: 'bg-red-50 border-red-200' },
+}
+
+export const checkScopeMap: Record<InventoryCheckScope, { label: string; color: string; bgColor: string }> = {
+  full: { label: '全店盘点', color: 'text-blue-700', bgColor: 'bg-blue-50 border-blue-200' },
+  category: { label: '分类盘点', color: 'text-purple-700', bgColor: 'bg-purple-50 border-purple-200' },
+  partial: { label: '部分盘点', color: 'text-cyan-700', bgColor: 'bg-cyan-50 border-cyan-200' },
 }

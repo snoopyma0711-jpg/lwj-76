@@ -10,6 +10,62 @@ export type OrderStatus =
 
 export type StockChangeType = 'in' | 'out' | 'adjust'
 
+export type InventoryCheckStatus = 'pending' | 'checking' | 'pending_confirm' | 'completed' | 'cancelled'
+export type InventoryCheckScope = 'full' | 'category' | 'partial'
+export type DiscrepancyHandleStatus = 'pending' | 'handled'
+
+export interface InventoryCheckItem {
+  productId: string
+  productName: string
+  sku: string
+  systemQuantity: number
+  actualQuantity: number | null
+  unit: string
+}
+
+export interface InventoryCheckDiscrepancy {
+  productId: string
+  productName: string
+  sku: string
+  systemQuantity: number
+  actualQuantity: number
+  difference: number
+  unit: string
+  handleStatus: DiscrepancyHandleStatus
+  handleReason?: string
+  handleOperator?: string
+  handleTime?: string
+}
+
+export interface InventoryCheckStatusLog {
+  id: string
+  status: InventoryCheckStatus
+  time: string
+  operator: string
+  remark?: string
+}
+
+export interface InventoryCheck {
+  id: string
+  checkNo: string
+  storeId: string
+  storeName: string
+  scope: InventoryCheckScope
+  scopeCategory?: string
+  scheduledTime: string
+  startedTime?: string
+  completedTime?: string
+  items: InventoryCheckItem[]
+  discrepancies: InventoryCheckDiscrepancy[]
+  status: InventoryCheckStatus
+  cancelReason?: string
+  statusLogs: InventoryCheckStatusLog[]
+  createdAt: string
+  createdBy: string
+  operator?: string
+  remark?: string
+}
+
 export type PurchaseStatus =
   | 'pending_approval'
   | 'approved'
@@ -204,6 +260,7 @@ export interface AppState {
   transfers: Transfer[]
   suppliers: Supplier[]
   purchases: Purchase[]
+  inventoryChecks: InventoryCheck[]
   currentUser: {
     name: string
     role: 'manager' | 'staff'
@@ -282,3 +339,6 @@ export type AppAction =
   | { type: 'UPDATE_TRANSFER'; payload: Transfer }
   | { type: 'ADD_PURCHASE'; payload: Purchase }
   | { type: 'UPDATE_PURCHASE'; payload: Purchase }
+  | { type: 'SET_INVENTORY_CHECKS'; payload: InventoryCheck[] }
+  | { type: 'ADD_INVENTORY_CHECK'; payload: InventoryCheck }
+  | { type: 'UPDATE_INVENTORY_CHECK'; payload: InventoryCheck }

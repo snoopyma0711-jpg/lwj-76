@@ -490,6 +490,91 @@ app.post('/api/purchases/:id/payment', (req, res) => {
   else fail(res, result.message)
 })
 
+app.get('/api/inventory-checks', (req, res) => {
+  const { keyword, status, storeId, startDate, endDate } = req.query
+  const checks = db.getInventoryChecks({
+    keyword: keyword as string,
+    status: status as any,
+    storeId: storeId as string,
+    startDate: startDate as string,
+    endDate: endDate as string,
+  })
+  ok(res, checks)
+})
+
+app.get('/api/inventory-checks/:id', (req, res) => {
+  const check = db.getInventoryCheckById(req.params.id)
+  if (!check) return fail(res, '盘点任务不存在', 404)
+  ok(res, check)
+})
+
+app.post('/api/inventory-checks', (req, res) => {
+  const { storeId, scope, scopeCategory, productIds, scheduledTime, remark } = req.body || {}
+  const result = db.createInventoryCheck({
+    storeId,
+    scope,
+    scopeCategory,
+    productIds,
+    scheduledTime,
+    remark,
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, result.data, result.message)
+  else fail(res, result.message)
+})
+
+app.put('/api/inventory-checks/:id/start', (req, res) => {
+  const result = db.startInventoryCheck({
+    checkId: req.params.id,
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, result.data, result.message)
+  else fail(res, result.message)
+})
+
+app.put('/api/inventory-checks/:id/save-progress', (req, res) => {
+  const { items } = req.body || {}
+  const result = db.saveInventoryCheckProgress({
+    checkId: req.params.id,
+    items,
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, result.data, result.message)
+  else fail(res, result.message)
+})
+
+app.put('/api/inventory-checks/:id/confirm', (req, res) => {
+  const result = db.confirmInventoryCheck({
+    checkId: req.params.id,
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, result.data, result.message)
+  else fail(res, result.message)
+})
+
+app.put('/api/inventory-checks/:id/handle-discrepancy', (req, res) => {
+  const { productId, handleReason } = req.body || {}
+  const result = db.handleInventoryCheckDiscrepancy({
+    checkId: req.params.id,
+    productId,
+    handleReason,
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, result.data, result.message)
+  else fail(res, result.message)
+})
+
+app.put('/api/inventory-checks/:id/cancel', (req, res) => {
+  const { reason } = req.body || {}
+  const result = db.cancelInventoryCheck({
+    checkId: req.params.id,
+    reason: reason || '',
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, result.data, result.message)
+  else fail(res, result.message)
+})
+
 app.use((_req, res) => {
   fail(res, '接口不存在', 404)
 })
