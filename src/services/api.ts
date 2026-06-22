@@ -1,4 +1,4 @@
-import type { Order, OrderStatus, Store, Product, StoreStock, StockRecord, Transfer, TransferType, TransferStatus, Supplier, Purchase, PurchaseStatus, PaymentRecord, PaymentMethod, InventoryCheck, InventoryCheckStatus, InventoryCheckScope } from '../types'
+import type { Order, OrderStatus, Store, Product, StoreStock, StockRecord, Transfer, TransferType, TransferStatus, Supplier, Purchase, PurchaseStatus, PaymentRecord, PaymentMethod, InventoryCheck, InventoryCheckStatus, InventoryCheckScope, ReviewStatus } from '../types'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api'
 const OPERATOR_NAME = '张店长'
@@ -298,6 +298,7 @@ export const api = {
     keyword?: string
     status?: InventoryCheckStatus | 'all'
     storeId?: string
+    reviewStatus?: ReviewStatus | 'all'
     startDate?: string
     endDate?: string
   }) => {
@@ -305,6 +306,7 @@ export const api = {
     if (params?.keyword) qs.set('keyword', params.keyword)
     if (params?.status) qs.set('status', params.status)
     if (params?.storeId) qs.set('storeId', params.storeId)
+    if (params?.reviewStatus) qs.set('reviewStatus', params.reviewStatus)
     if (params?.startDate) qs.set('startDate', params.startDate)
     if (params?.endDate) qs.set('endDate', params.endDate)
     return request<InventoryCheck[]>(`/inventory-checks${qs.toString() ? '?' + qs.toString() : ''}`)
@@ -344,4 +346,16 @@ export const api = {
     method: 'PUT',
     body: JSON.stringify({ reason }),
   }),
+  submitForReview: (checkId: string) => request<InventoryCheck>(`/inventory-checks/${checkId}/submit-review`, {
+    method: 'PUT',
+  }),
+  reviewInventoryCheck: (checkId: string, data: {
+    reviewConclusion: 'passed' | 'rejected'
+    reviewRemark: string
+    rejectReason?: string
+  }) => request<InventoryCheck>(`/inventory-checks/${checkId}/review`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  getInventoryCheckExportData: (checkId: string) => request<any>(`/inventory-checks/${checkId}/export`),
 }

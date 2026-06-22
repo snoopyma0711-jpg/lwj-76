@@ -1,4 +1,4 @@
-import type { Database, Order, OrderStatus, OrderItem, StoreStock, StockRecord, Transfer, TransferType, TransferStatus, TransferItem, Supplier, Purchase, PurchaseStatus, PurchaseItem, PurchaseReceiveItem, PaymentRecord, PaymentMethod, ReconciliationStatus, PaymentStatus, InventoryCheck, InventoryCheckStatus, InventoryCheckItem, InventoryCheckDiscrepancy, InventoryCheckScope } from './types'
+import type { Database, Order, OrderStatus, OrderItem, StoreStock, StockRecord, Transfer, TransferType, TransferStatus, TransferItem, Supplier, Purchase, PurchaseStatus, PurchaseItem, PurchaseReceiveItem, PaymentRecord, PaymentMethod, ReconciliationStatus, PaymentStatus, InventoryCheck, InventoryCheckStatus, InventoryCheckItem, InventoryCheckDiscrepancy, InventoryCheckScope, ReviewStatus } from './types'
 import { createMockDatabase } from './mockData'
 import { nowStr, generateOrderNo, isValidPhone, orderStatusMap, generateTransferNo, transferStatusMap, generatePurchaseNo, purchaseStatusMap, generateCheckNo, checkStatusMap } from './utils'
 import { v4 as uuidv4 } from 'uuid'
@@ -1470,6 +1470,7 @@ export function getInventoryChecks(params?: {
   keyword?: string
   status?: InventoryCheckStatus | 'all'
   storeId?: string
+  reviewStatus?: ReviewStatus | 'all'
   startDate?: string
   endDate?: string
 }): InventoryCheck[] {
@@ -1487,6 +1488,9 @@ export function getInventoryChecks(params?: {
     list = list.filter((c) => c.status === params.status)
   }
   if (params?.storeId) list = list.filter((c) => c.storeId === params.storeId)
+  if (params?.reviewStatus && params.reviewStatus !== 'all') {
+    list = list.filter((c) => c.reviewStatus === params.reviewStatus)
+  }
   if (params?.startDate) list = list.filter((c) => c.createdAt.slice(0, 10) >= params.startDate!)
   if (params?.endDate) list = list.filter((c) => c.createdAt.slice(0, 10) <= params.endDate!)
   return list.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
@@ -1565,6 +1569,7 @@ export function createInventoryCheck(params: {
     createdBy: operator,
     operator,
     remark: remark?.trim() || undefined,
+    reviewLogs: [],
   }
 
   db.inventoryChecks.unshift(check)
@@ -1823,4 +1828,189 @@ export function cancelInventoryCheck(params: {
   }
   db.inventoryChecks[idx] = updated
   return { success: true, message: '盘点任务已取消', data: updated }
+}
+
+export function submitForReview(params: {
+  checkId: string
+  operator?: string
+}): { success: boolean; message: string; data?: InventoryCheck } {
+  const check = db.inventoryChecks.find((c) => c.id === params.checkId)
+  if (!check) return { success: false, message: '盘点任务不存在' }
+  if (check.status !== 'completed') {
+    return { success: false, message: '只有已完成的盘点任务才能提交复核' }
+  }
+  if (check.reviewStatus === 'pending_review') {
+    return { success: false, message: '该盘点任务已提交复核，无需重复提交' }
+  }
+  if (check.reviewStatus === 'review_passed') {
+    return { success: false, message: '该盘点任务已复核通过，无需再次提交' }
+  }
+
+  const time = nowStr()
+  const idx = db.inventoryChecks.findIndex((c) => c.id === params.checkId)
+  const updated: InventoryCheck = {
+    ...check,
+    reviewStatus: 'pending_review',
+    submittedForReviewTime: time,
+    statusLogs: [
+      ...check.statusLogs,
+      {
+        id: uuidv4(),
+        status: check.status,
+        time,
+        operator: params.operator || '系统',
+        remark: '提交复核',
+      },
+    ],
+  }
+  db.inventoryChecks[idx] = updated
+  return { success: true, message: '已提交复核，请等待复核', data: updated }
+}
+
+export function reviewInventoryCheck(params: {
+  checkId: string
+  reviewConclusion: 'passed' | 'rejected'
+  reviewRemark: string
+  rejectReason?: string
+  operator?: string
+}): { success: boolean; message: string; data?: InventoryCheck } {
+  const check = db.inventoryChecks.find((c) => c.id === params.checkId)
+  if (!check) return { success: false, message: '盘点任务不存在' }
+  if (check.reviewStatus !== 'pending_review') {
+    return { success: false, message: '只有待复核状态的盘点任务才能进行复核' }
+  }
+  if (!params.reviewConclusion) {
+    return { success: false, message: '请选择复核结论' }
+  }
+  if (params.reviewConclusion === 'rejected' && !params.rejectReason?.trim()) {
+    return { success: false, message: '复核驳回时必须填写驳回原因' }
+  }
+  if (!params.reviewRemark?.trim()) {
+    return { success: false, message: '请填写复核备注' }
+  }
+  if (params.reviewRemark.length > 500) {
+    return { success: false, message: '复核备注不能超过500字' }
+  }
+  if (params.rejectReason && params.rejectReason.length > 500) {
+    return { success: false, message: '驳回原因不能超过500字' }
+  }
+
+  const time = nowStr()
+  const operator = params.operator || '系统'
+  const reviewInfo = {
+    reviewer: operator,
+    reviewTime: time,
+    reviewConclusion: params.reviewConclusion,
+    reviewRemark: params.reviewRemark.trim(),
+    rejectReason: params.reviewConclusion === 'rejected' ? params.rejectReason?.trim() : undefined,
+  }
+
+  const reviewLog = {
+    id: uuidv4(),
+    ...reviewInfo,
+  }
+
+  const idx = db.inventoryChecks.findIndex((c) => c.id === params.checkId)
+  const updated: InventoryCheck = {
+    ...check,
+    reviewStatus: params.reviewConclusion === 'passed' ? 'review_passed' : 'review_rejected',
+    reviewInfo,
+    reviewLogs: [reviewLog, ...check.reviewLogs],
+    statusLogs: [
+      ...check.statusLogs,
+      {
+        id: uuidv4(),
+        status: check.status,
+        time,
+        operator,
+        remark: params.reviewConclusion === 'passed'
+          ? `复核通过：${params.reviewRemark.trim()}`
+          : `复核驳回：${params.reviewRemark.trim()}。驳回原因：${params.rejectReason?.trim()}`,
+      },
+    ],
+  }
+
+  if (params.reviewConclusion === 'rejected') {
+    updated.status = 'pending_confirm'
+    updated.discrepancies = updated.discrepancies.map((d) => ({
+      ...d,
+      handleStatus: 'pending',
+    }))
+  }
+
+  db.inventoryChecks[idx] = updated
+  return { success: true, message: params.reviewConclusion === 'passed' ? '复核通过' : '已驳回，差异处理状态已重置', data: updated }
+}
+
+export function getInventoryCheckExportData(checkId: string): { success: boolean; message: string; data?: any } {
+  const check = db.inventoryChecks.find((c) => c.id === checkId)
+  if (!check) return { success: false, message: '盘点任务不存在' }
+
+  const exportData = {
+    basicInfo: {
+      checkNo: check.checkNo,
+      storeName: check.storeName,
+      scope: check.scope,
+      scopeCategory: check.scopeCategory,
+      scheduledTime: check.scheduledTime,
+      startedTime: check.startedTime,
+      completedTime: check.completedTime,
+      createdAt: check.createdAt,
+      createdBy: check.createdBy,
+      status: check.status,
+      reviewStatus: check.reviewStatus,
+      remark: check.remark,
+    },
+    itemSummary: {
+      totalItems: check.items.length,
+      matchedItems: check.items.filter((i) => i.actualQuantity !== null && i.actualQuantity === i.systemQuantity).length,
+      discrepancyItems: check.discrepancies.length,
+      handledDiscrepancies: check.discrepancies.filter((d) => d.handleStatus === 'handled').length,
+      pendingDiscrepancies: check.discrepancies.filter((d) => d.handleStatus === 'pending').length,
+    },
+    items: check.items.map((it) => ({
+      productName: it.productName,
+      sku: it.sku,
+      systemQuantity: it.systemQuantity,
+      actualQuantity: it.actualQuantity,
+      unit: it.unit,
+      difference: it.actualQuantity !== null ? it.actualQuantity - it.systemQuantity : null,
+    })),
+    discrepancies: check.discrepancies.map((d) => ({
+      productName: d.productName,
+      sku: d.sku,
+      systemQuantity: d.systemQuantity,
+      actualQuantity: d.actualQuantity,
+      difference: d.difference,
+      unit: d.unit,
+      handleStatus: d.handleStatus,
+      handleReason: d.handleReason,
+      handleOperator: d.handleOperator,
+      handleTime: d.handleTime,
+    })),
+    statusLogs: check.statusLogs.map((log) => ({
+      status: log.status,
+      time: log.time,
+      operator: log.operator,
+      remark: log.remark,
+    })),
+    reviewInfo: check.reviewInfo ? {
+      reviewer: check.reviewInfo.reviewer,
+      reviewTime: check.reviewInfo.reviewTime,
+      reviewConclusion: check.reviewInfo.reviewConclusion,
+      reviewRemark: check.reviewInfo.reviewRemark,
+      rejectReason: check.reviewInfo.rejectReason,
+    } : null,
+    reviewLogs: check.reviewLogs.map((log) => ({
+      reviewer: log.reviewer,
+      reviewTime: log.reviewTime,
+      reviewConclusion: log.reviewConclusion,
+      reviewRemark: log.reviewRemark,
+      rejectReason: log.rejectReason,
+    })),
+    exportTime: nowStr(),
+    exportedBy: '系统',
+  }
+
+  return { success: true, message: '获取导出数据成功', data: exportData }
 }

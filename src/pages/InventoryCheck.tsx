@@ -19,19 +19,24 @@ import {
   Hash,
   Eye,
   X,
+  FileSpreadsheet,
+  RotateCcw,
+  ShieldCheck,
+  Send,
 } from 'lucide-react'
-import type { InventoryCheck, InventoryCheckItem, InventoryCheckScope, InventoryCheckStatus } from '../types'
-import { checkStatusMap, checkScopeMap } from '../utils/constants'
+import type { InventoryCheck, InventoryCheckItem, InventoryCheckScope, InventoryCheckStatus, ReviewStatus } from '../types'
+import { checkStatusMap, checkScopeMap, reviewStatusMap } from '../utils/constants'
 
 type ViewMode = 'list' | 'detail' | 'check' | 'discrepancy'
 
 export default function InventoryCheckPage() {
-  const { state, createInventoryCheck, startInventoryCheck, saveInventoryCheckProgress, confirmInventoryCheck, handleInventoryCheckDiscrepancy, cancelInventoryCheck } = useApp()
+  const { state, createInventoryCheck, startInventoryCheck, saveInventoryCheckProgress, confirmInventoryCheck, handleInventoryCheckDiscrepancy, cancelInventoryCheck, submitForReview, reviewInventoryCheck, exportInventoryCheck } = useApp()
 
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [selectedCheck, setSelectedCheck] = useState<InventoryCheck | null>(null)
 
   const [filterStatus, setFilterStatus] = useState<InventoryCheckStatus | 'all'>('all')
+  const [filterReviewStatus, setFilterReviewStatus] = useState<ReviewStatus | 'all'>('all')
   const [filterStoreId, setFilterStoreId] = useState('')
   const [filterKeyword, setFilterKeyword] = useState('')
   const [filterStartDate, setFilterStartDate] = useState('')
@@ -41,6 +46,12 @@ export default function InventoryCheckPage() {
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
   const [cancelError, setCancelError] = useState('')
+
+  const [showReviewModal, setShowReviewModal] = useState(false)
+  const [reviewConclusion, setReviewConclusion] = useState<'passed' | 'rejected'>('passed')
+  const [reviewRemark, setReviewRemark] = useState('')
+  const [rejectReason, setRejectReason] = useState('')
+  const [reviewError, setReviewError] = useState('')
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
@@ -69,11 +80,12 @@ export default function InventoryCheckPage() {
       )
     }
     if (filterStatus !== 'all') list = list.filter((c) => c.status === filterStatus)
+    if (filterReviewStatus !== 'all') list = list.filter((c) => c.reviewStatus === filterReviewStatus)
     if (filterStoreId) list = list.filter((c) => c.storeId === filterStoreId)
     if (filterStartDate) list = list.filter((c) => c.createdAt.slice(0, 10) >= filterStartDate)
     if (filterEndDate) list = list.filter((c) => c.createdAt.slice(0, 10) <= filterEndDate)
     return list.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
-  }, [state.inventoryChecks, filterKeyword, filterStatus, filterStoreId, filterStartDate, filterEndDate])
+  }, [state.inventoryChecks, filterKeyword, filterStatus, filterReviewStatus, filterStoreId, filterStartDate, filterEndDate])
 
   const openDetail = (check: InventoryCheck) => {
     setSelectedCheck(check)
@@ -234,6 +246,77 @@ export default function InventoryCheckPage() {
     }
   }
 
+  const handleSubmitForReview = async (check: InventoryCheck) => {
+    const res = await submitForReview(check)
+    if (res.success && res.data) {
+      setSelectedCheck(res.data)
+      setToast({ message: '已提交复核，请等待复核', type: 'success' })
+    } else {
+      setToast({ message: res.message, type: 'error' })
+    }
+  }
+
+  const openReviewModal = (check: InventoryCheck) => {
+    setSelectedCheck(check)
+    setReviewConclusion('passed')
+    setReviewRemark('')
+    setRejectReason('')
+    setReviewError('')
+    setShowReviewModal(true)
+  }
+
+  const handleReview = async () => {
+    if (!selectedCheck) return
+    setReviewError('')
+
+    if (!reviewConclusion) {
+      setReviewError('请选择复核结论')
+      return
+    }
+    if (!reviewRemark.trim()) {
+      setReviewError('请填写复核备注')
+      return
+    }
+    if (reviewRemark.length > 500) {
+      setReviewError('复核备注不能超过500字')
+      return
+    }
+    if (reviewConclusion === 'rejected' && !rejectReason.trim()) {
+      setReviewError('复核驳回时必须填写驳回原因')
+      return
+    }
+    if (rejectReason && rejectReason.length > 500) {
+      setReviewError('驳回原因不能超过500字')
+      return
+    }
+
+    const res = await reviewInventoryCheck({
+      check: selectedCheck,
+      reviewConclusion,
+      reviewRemark: reviewRemark.trim(),
+      rejectReason: reviewConclusion === 'rejected' ? rejectReason.trim() : undefined,
+    })
+    if (res.success && res.data) {
+      setSelectedCheck(res.data)
+      setShowReviewModal(false)
+      if (reviewConclusion === 'passed') {
+        setToast({ message: '🎉 复核通过！', type: 'success' })
+      } else {
+        setToast({ message: '已驳回，差异处理状态已重置，请重新处理', type: 'success' })
+        if (viewMode === 'detail') {
+          setViewMode('detail')
+        }
+      }
+    } else {
+      setReviewError(res.message)
+    }
+  }
+
+  const handleExport = (check: InventoryCheck) => {
+    exportInventoryCheck(check)
+    setToast({ message: '导出成功，请查看下载的文件', type: 'success' })
+  }
+
   const categories = useMemo(() => {
     const cats = new Set(state.products.map((p) => p.category))
     return Array.from(cats)
@@ -247,6 +330,9 @@ export default function InventoryCheckPage() {
       checking: checks.filter((c) => c.status === 'checking').length,
       pendingConfirm: checks.filter((c) => c.status === 'pending_confirm').length,
       completed: checks.filter((c) => c.status === 'completed').length,
+      pendingReview: checks.filter((c) => c.reviewStatus === 'pending_review').length,
+      reviewPassed: checks.filter((c) => c.reviewStatus === 'review_passed').length,
+      reviewRejected: checks.filter((c) => c.reviewStatus === 'review_rejected').length,
     }
   }, [state.inventoryChecks])
 
@@ -273,11 +359,11 @@ export default function InventoryCheckPage() {
                   <span>门店盘点</span>
                 </div>
                 <div className="text-2xl font-bold mb-3">库存盘点与差异处理</div>
-                <div className="text-sm text-white/70">新建盘点任务 → 录入实际数量 → 确认盘点 → 处理差异 → 库存自动更新</div>
+                <div className="text-sm text-white/70">新建盘点任务 → 录入实际数量 → 确认盘点 → 处理差异 → 提交复核 → 复核通过/驳回 → 导出结果</div>
               </div>
-              <div className="lg:w-80 p-4 rounded-2xl bg-white/10 border border-white/15 backdrop-blur-sm">
+              <div className="lg:w-96 p-4 rounded-2xl bg-white/10 border border-white/15 backdrop-blur-sm">
                 <div className="text-xs text-white/70 mb-3">盘点概览</div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-2">
                   <div className="p-3 rounded-xl bg-white/10">
                     <div className="text-2xl font-bold">{stats.pending}</div>
                     <div className="text-xs text-white/70">待开始</div>
@@ -293,6 +379,14 @@ export default function InventoryCheckPage() {
                   <div className="p-3 rounded-xl bg-green-400/20">
                     <div className="text-2xl font-bold">{stats.completed}</div>
                     <div className="text-xs text-green-100">已完成</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-orange-400/20">
+                    <div className="text-2xl font-bold">{stats.pendingReview}</div>
+                    <div className="text-xs text-orange-100">待复核</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-emerald-400/20">
+                    <div className="text-2xl font-bold">{stats.reviewPassed}</div>
+                    <div className="text-xs text-emerald-100">复核通过</div>
                   </div>
                 </div>
               </div>
@@ -323,8 +417,16 @@ export default function InventoryCheckPage() {
                 value={filterStatus}
                 onChange={(v) => setFilterStatus(v as InventoryCheckStatus | 'all')}
                 options={[
-                  { value: 'all', label: '全部状态' },
+                  { value: 'all', label: '全部盘点状态' },
                   ...Object.entries(checkStatusMap).map(([k, v]) => ({ value: k, label: v.label })),
+                ]}
+              />
+              <Select
+                value={filterReviewStatus}
+                onChange={(v) => setFilterReviewStatus(v as ReviewStatus | 'all')}
+                options={[
+                  { value: 'all', label: '全部复核状态' },
+                  ...Object.entries(reviewStatusMap).map(([k, v]) => ({ value: k, label: v.label })),
                 ]}
               />
               <Select
@@ -344,7 +446,17 @@ export default function InventoryCheckPage() {
             ) : (
               <div className="space-y-3">
                 {filteredChecks.map((check) => (
-                  <CheckListItem key={check.id} check={check} onDetail={() => openDetail(check)} onStart={() => handleStartCheck(check)} onContinue={() => openCheckMode(check)} onDiscrepancy={() => openDiscrepancyMode(check)} />
+                  <CheckListItem
+                    key={check.id}
+                    check={check}
+                    onDetail={() => openDetail(check)}
+                    onStart={() => handleStartCheck(check)}
+                    onContinue={() => openCheckMode(check)}
+                    onDiscrepancy={() => openDiscrepancyMode(check)}
+                    onSubmitForReview={() => handleSubmitForReview(check)}
+                    onReview={() => openReviewModal(check)}
+                    onExport={() => handleExport(check)}
+                  />
                 ))}
               </div>
             )}
@@ -374,7 +486,17 @@ export default function InventoryCheckPage() {
       )}
 
       {viewMode === 'detail' && selectedCheck && (
-        <CheckDetailView check={selectedCheck} onBack={goBackToList} onStart={() => handleStartCheck(selectedCheck)} onContinue={() => openCheckMode(selectedCheck)} onDiscrepancy={() => openDiscrepancyMode(selectedCheck)} onCancel={() => { setShowCancelModal(true); setCancelReason(''); setCancelError('') }} />
+        <CheckDetailView
+          check={selectedCheck}
+          onBack={goBackToList}
+          onStart={() => handleStartCheck(selectedCheck)}
+          onContinue={() => openCheckMode(selectedCheck)}
+          onDiscrepancy={() => openDiscrepancyMode(selectedCheck)}
+          onCancel={() => { setShowCancelModal(true); setCancelReason(''); setCancelError('') }}
+          onSubmitForReview={() => handleSubmitForReview(selectedCheck)}
+          onReview={() => openReviewModal(selectedCheck)}
+          onExport={() => handleExport(selectedCheck)}
+        />
       )}
 
       {viewMode === 'check' && selectedCheck && (
@@ -576,6 +698,78 @@ export default function InventoryCheckPage() {
         )}
         <Textarea label="取消原因 *" value={cancelReason} onChange={setCancelReason} placeholder="请填写取消原因" required />
       </Modal>
+
+      <Modal
+        open={showReviewModal}
+        title="盘点复核"
+        onClose={() => setShowReviewModal(false)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowReviewModal(false)}>返回</Button>
+            <Button onClick={handleReview} className="gap-1.5">
+              <ShieldCheck size={14} />
+              提交复核
+            </Button>
+          </>
+        }
+        width="max-w-xl"
+      >
+        {reviewError && (
+          <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-100 text-sm text-red-700 flex items-center gap-2">
+            <XCircle size={16} className="flex-shrink-0" />
+            {reviewError}
+          </div>
+        )}
+        <div className="space-y-4">
+          <div>
+            <Select
+              label="复核结论 *"
+              value={reviewConclusion}
+              onChange={(v) => setReviewConclusion(v as 'passed' | 'rejected')}
+              options={[
+                { value: 'passed', label: '✅ 复核通过' },
+                { value: 'rejected', label: '❌ 复核驳回' },
+              ]}
+              required
+            />
+          </div>
+
+          <div>
+            <Textarea
+              label="复核备注 *"
+              value={reviewRemark}
+              onChange={setReviewRemark}
+              placeholder="请填写复核备注，说明复核意见或结果"
+              required
+              rows={3}
+              maxLength={500}
+            />
+            <div className="text-xs text-gray-400 mt-1 text-right">{reviewRemark.length}/500</div>
+          </div>
+
+          {reviewConclusion === 'rejected' && (
+            <div>
+              <Textarea
+                label="驳回原因 *"
+                value={rejectReason}
+                onChange={setRejectReason}
+                placeholder="请填写驳回原因，说明需要重新处理的问题"
+                required
+                rows={3}
+                maxLength={500}
+              />
+              <div className="text-xs text-gray-400 mt-1 text-right">{rejectReason.length}/500</div>
+              <div className="mt-2 p-3 rounded-xl bg-amber-50 border border-amber-100 text-xs text-amber-700">
+                <div className="flex items-center gap-1.5 font-medium mb-1">
+                  <AlertTriangle size={12} />
+                  提示
+                </div>
+                驳回后，盘点任务将退回至「待确认」状态，所有差异处理状态将重置，需要重新处理差异后再次提交复核。
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   )
 }
@@ -586,17 +780,29 @@ function CheckListItem({
   onStart,
   onContinue,
   onDiscrepancy,
+  onSubmitForReview,
+  onReview,
+  onExport,
 }: {
   check: InventoryCheck
   onDetail: () => void
   onStart: () => void
   onContinue: () => void
   onDiscrepancy: () => void
+  onSubmitForReview: () => void
+  onReview: () => void
+  onExport: () => void
 }) {
   const st = checkStatusMap[check.status]
   const scope = checkScopeMap[check.scope]
   const discCount = check.discrepancies.length
   const pendingDiscCount = check.discrepancies.filter((d) => d.handleStatus === 'pending').length
+  const reviewSt = check.reviewStatus ? reviewStatusMap[check.reviewStatus] : null
+
+  const canSubmitForReview = check.status === 'completed' &&
+    (check.reviewStatus === undefined || check.reviewStatus === 'review_rejected')
+  const canReview = check.reviewStatus === 'pending_review'
+  const canExport = check.status === 'completed' || check.reviewStatus
 
   return (
     <div className="p-4 rounded-xl border border-gray-100 hover:border-gray-200 transition-all hover:shadow-md bg-white">
@@ -613,6 +819,11 @@ function CheckListItem({
             <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${scope.bgColor} ${scope.color}`}>
               {scope.label}
             </span>
+            {reviewSt && (
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${reviewSt.bgColor} ${reviewSt.color}`}>
+                {reviewSt.label}
+              </span>
+            )}
             {discCount > 0 && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
                 <AlertTriangle size={10} />
@@ -624,13 +835,16 @@ function CheckListItem({
             <span className="flex items-center gap-1"><MapPin size={12} />{check.storeName}</span>
             <span className="flex items-center gap-1"><CalendarClock size={12} />计划 {check.scheduledTime.slice(0, 16)}</span>
             <span className="flex items-center gap-1"><Clock size={12} />创建 {check.createdAt.slice(0, 16)}</span>
+            {check.submittedForReviewTime && (
+              <span className="flex items-center gap-1"><Send size={12} />提交复核 {check.submittedForReviewTime.slice(0, 16)}</span>
+            )}
           </div>
           <div className="mt-2 text-xs text-gray-400">
             {check.items.length} 件商品
             {check.status === 'checking' && ` · 已录入 ${check.items.filter((it) => it.actualQuantity !== null).length} 件`}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {check.status === 'pending' && (
             <Button size="sm" onClick={onStart} className="gap-1">
               <Play size={12} />
@@ -647,6 +861,24 @@ function CheckListItem({
             <Button size="sm" variant="warning" onClick={onDiscrepancy} className="gap-1">
               <AlertTriangle size={12} />
               处理差异
+            </Button>
+          )}
+          {canSubmitForReview && (
+            <Button size="sm" variant="primary" onClick={onSubmitForReview} className="gap-1">
+              <Send size={12} />
+              {check.reviewStatus === 'review_rejected' ? '重新提交复核' : '提交复核'}
+            </Button>
+          )}
+          {canReview && (
+            <Button size="sm" variant="warning" onClick={onReview} className="gap-1">
+              <ShieldCheck size={12} />
+              复核
+            </Button>
+          )}
+          {canExport && (
+            <Button size="sm" variant="secondary" onClick={onExport} className="gap-1">
+              <FileSpreadsheet size={12} />
+              导出
             </Button>
           )}
           <Button size="sm" variant="ghost" onClick={onDetail} className="gap-1">
@@ -666,6 +898,9 @@ function CheckDetailView({
   onContinue,
   onDiscrepancy,
   onCancel,
+  onSubmitForReview,
+  onReview,
+  onExport,
 }: {
   check: InventoryCheck
   onBack: () => void
@@ -673,20 +908,34 @@ function CheckDetailView({
   onContinue: () => void
   onDiscrepancy: () => void
   onCancel: () => void
+  onSubmitForReview: () => void
+  onReview: () => void
+  onExport: () => void
 }) {
   const st = checkStatusMap[check.status]
   const scope = checkScopeMap[check.scope]
+  const reviewSt = check.reviewStatus ? reviewStatusMap[check.reviewStatus] : null
+
+  const canSubmitForReview = check.status === 'completed' &&
+    (check.reviewStatus === undefined || check.reviewStatus === 'review_rejected')
+  const canReview = check.reviewStatus === 'pending_review'
+  const canExport = check.status === 'completed' || check.reviewStatus
 
   return (
     <div className="space-y-6">
       <Card
         title={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <ClipboardCheck size={18} className="text-indigo-500" />
             <span>盘点详情 · {check.checkNo}</span>
             <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${st.bgColor} ${st.color}`}>
               {st.label}
             </span>
+            {reviewSt && (
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${reviewSt.bgColor} ${reviewSt.color}`}>
+                {reviewSt.label}
+              </span>
+            )}
           </div>
         }
         extra={
@@ -696,7 +945,7 @@ function CheckDetailView({
           </Button>
         }
       >
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
           <div>
             <div className="text-xs text-gray-500 mb-1">盘点编号</div>
             <div className="font-mono font-semibold text-gray-800">{check.checkNo}</div>
@@ -713,6 +962,16 @@ function CheckDetailView({
             {check.scopeCategory && <span className="ml-2 text-xs text-gray-500">({check.scopeCategory})</span>}
           </div>
           <div>
+            <div className="text-xs text-gray-500 mb-1">复核状态</div>
+            {reviewSt ? (
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${reviewSt.bgColor} ${reviewSt.color}`}>
+                {reviewSt.label}
+              </span>
+            ) : (
+              <span className="text-sm text-gray-400">未复核</span>
+            )}
+          </div>
+          <div>
             <div className="text-xs text-gray-500 mb-1">计划时间</div>
             <div className="text-sm text-gray-800">{check.scheduledTime.slice(0, 16)}</div>
           </div>
@@ -723,6 +982,10 @@ function CheckDetailView({
           <div>
             <div className="text-xs text-gray-500 mb-1">完成时间</div>
             <div className="text-sm text-gray-800">{check.completedTime?.slice(0, 16) || '-'}</div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 mb-1">提交复核时间</div>
+            <div className="text-sm text-gray-800">{check.submittedForReviewTime?.slice(0, 16) || '-'}</div>
           </div>
           <div>
             <div className="text-xs text-gray-500 mb-1">创建人</div>
@@ -736,9 +999,13 @@ function CheckDetailView({
             <div className="text-xs text-gray-500 mb-1">差异数量</div>
             <div className="text-sm text-gray-800">{check.discrepancies.length} 项</div>
           </div>
+          <div>
+            <div className="text-xs text-gray-500 mb-1">复核次数</div>
+            <div className="text-sm text-gray-800">{check.reviewLogs.length} 次</div>
+          </div>
         </div>
 
-        <div className="flex gap-3 mb-6">
+        <div className="flex gap-3 mb-6 flex-wrap">
           {check.status === 'pending' && (
             <Button onClick={onStart} className="gap-1.5"><Play size={14} />开始盘点</Button>
           )}
@@ -747,6 +1014,24 @@ function CheckDetailView({
           )}
           {check.status === 'pending_confirm' && check.discrepancies.filter((d) => d.handleStatus === 'pending').length > 0 && (
             <Button variant="warning" onClick={onDiscrepancy} className="gap-1.5"><AlertTriangle size={14} />处理差异</Button>
+          )}
+          {canSubmitForReview && (
+            <Button variant="primary" onClick={onSubmitForReview} className="gap-1.5">
+              <Send size={14} />
+              {check.reviewStatus === 'review_rejected' ? '重新提交复核' : '提交复核'}
+            </Button>
+          )}
+          {canReview && (
+            <Button variant="warning" onClick={onReview} className="gap-1.5">
+              <ShieldCheck size={14} />
+              复核
+            </Button>
+          )}
+          {canExport && (
+            <Button variant="secondary" onClick={onExport} className="gap-1.5">
+              <FileSpreadsheet size={14} />
+              导出报告
+            </Button>
           )}
           {!['completed', 'cancelled'].includes(check.status) && (
             <Button variant="danger" size="sm" onClick={onCancel} className="gap-1"><XCircle size={12} />取消</Button>
@@ -801,6 +1086,65 @@ function CheckDetailView({
                 ))}
               </tbody>
             </table>
+          </div>
+        </Card>
+      )}
+
+      {check.reviewInfo && (
+        <Card title={<div className="flex items-center gap-2"><ShieldCheck size={16} className="text-indigo-500" /><span>最新复核结果</span></div>}>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <div>
+              <div className="text-xs text-gray-500 mb-1">复核结论</div>
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${reviewStatusMap[check.reviewStatus!].bgColor} ${reviewStatusMap[check.reviewStatus!].color}`}>
+                {check.reviewInfo.reviewConclusion === 'passed' ? '复核通过' : '复核驳回'}
+              </span>
+            </div>
+            <div>
+              <div className="text-xs text-gray-500 mb-1">复核人</div>
+              <div className="text-sm font-medium text-gray-800">{check.reviewInfo.reviewer}</div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-500 mb-1">复核时间</div>
+              <div className="text-sm text-gray-800">{check.reviewInfo.reviewTime.slice(0, 16)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-500 mb-1">复核备注</div>
+              <div className="text-sm text-gray-800">{check.reviewInfo.reviewRemark}</div>
+            </div>
+          </div>
+          {check.reviewInfo.rejectReason && (
+            <div className="p-3 rounded-xl bg-red-50 border border-red-100">
+              <div className="text-xs text-red-600 font-medium mb-1">驳回原因</div>
+              <div className="text-sm text-red-800">{check.reviewInfo.rejectReason}</div>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {check.reviewLogs.length > 0 && (
+        <Card title={<div className="flex items-center gap-2"><RotateCcw size={16} className="text-gray-400" /><span>复核历史记录</span></div>}>
+          <div className="space-y-3">
+            {check.reviewLogs.map((log, i) => (
+              <div key={log.id} className="flex gap-3">
+                <div className="flex flex-col items-center">
+                  <div className={`w-3 h-3 rounded-full border-2 ${i === 0 ? 'bg-indigo-500 border-indigo-500' : 'bg-white border-gray-300'}`} />
+                  {i < check.reviewLogs.length - 1 && <div className="w-0.5 flex-1 bg-gray-200 mt-1" />}
+                </div>
+                <div className="pb-4 flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className={`text-xs font-medium ${log.reviewConclusion === 'passed' ? 'text-green-700' : 'text-red-700'}`}>
+                      {log.reviewConclusion === 'passed' ? '复核通过' : '复核驳回'}
+                    </span>
+                    <span className="text-xs text-gray-400">{log.reviewTime.slice(0, 16)}</span>
+                    <span className="text-xs text-gray-400">{log.reviewer}</span>
+                  </div>
+                  <div className="text-sm text-gray-700">复核备注：{log.reviewRemark}</div>
+                  {log.rejectReason && (
+                    <div className="text-xs text-red-600 mt-1">驳回原因：{log.rejectReason}</div>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </Card>
       )}

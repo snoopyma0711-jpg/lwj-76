@@ -491,11 +491,12 @@ app.post('/api/purchases/:id/payment', (req, res) => {
 })
 
 app.get('/api/inventory-checks', (req, res) => {
-  const { keyword, status, storeId, startDate, endDate } = req.query
+  const { keyword, status, storeId, reviewStatus, startDate, endDate } = req.query
   const checks = db.getInventoryChecks({
     keyword: keyword as string,
     status: status as any,
     storeId: storeId as string,
+    reviewStatus: reviewStatus as any,
     startDate: startDate as string,
     endDate: endDate as string,
   })
@@ -571,6 +572,34 @@ app.put('/api/inventory-checks/:id/cancel', (req, res) => {
     reason: reason || '',
     operator: getOperator(req),
   })
+  if (result.success) ok(res, result.data, result.message)
+  else fail(res, result.message)
+})
+
+app.put('/api/inventory-checks/:id/submit-review', (req, res) => {
+  const result = db.submitForReview({
+    checkId: req.params.id,
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, result.data, result.message)
+  else fail(res, result.message)
+})
+
+app.put('/api/inventory-checks/:id/review', (req, res) => {
+  const { reviewConclusion, reviewRemark, rejectReason } = req.body || {}
+  const result = db.reviewInventoryCheck({
+    checkId: req.params.id,
+    reviewConclusion,
+    reviewRemark,
+    rejectReason,
+    operator: getOperator(req),
+  })
+  if (result.success) ok(res, result.data, result.message)
+  else fail(res, result.message)
+})
+
+app.get('/api/inventory-checks/:id/export', (req, res) => {
+  const result = db.getInventoryCheckExportData(req.params.id)
   if (result.success) ok(res, result.data, result.message)
   else fail(res, result.message)
 })

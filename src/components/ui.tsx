@@ -310,6 +310,7 @@ interface TextareaProps {
   required?: boolean
   disabled?: boolean
   rows?: number
+  maxLength?: number
   className?: string
   error?: string
 }
@@ -322,6 +323,7 @@ export function Textarea({
   required,
   disabled,
   rows = 3,
+  maxLength,
   className = '',
   error,
 }: TextareaProps) {
@@ -338,6 +340,7 @@ export function Textarea({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         rows={rows}
+        maxLength={maxLength}
         disabled={disabled}
         className={`w-full px-3 py-2 text-sm border rounded-md transition-colors
           ${error ? 'border-red-300 focus:ring-red-200 focus:border-red-400 bg-red-50'
@@ -360,5 +363,50 @@ export function Table({ children, className = '' }: TableProps) {
     <div className={`overflow-x-auto ${className}`}>
       <table className="w-full text-sm">{children}</table>
     </div>
+  )
+}
+
+interface RadioGroupProps {
+  value: string
+  onChange: (v: string) => void
+  children: ReactNode
+  className?: string
+}
+
+export function RadioGroup({ value, onChange, children, className = '' }: RadioGroupProps) {
+  return (
+    <div className={`flex gap-4 ${className}`}>
+      {children}
+    </div>
+  )
+}
+
+interface RadioProps {
+  value: string
+  children: ReactNode
+  checked?: boolean
+  onChange?: (v: string) => void
+}
+
+export function Radio({ value, children, checked, onChange }: RadioProps) {
+  const { onChange: groupOnChange, value: groupValue } = (Radio as any).__group || {}
+  const isChecked = checked !== undefined ? checked : groupValue === value
+  const handleChange = () => {
+    if (onChange) onChange(value)
+    else if (groupOnChange) groupOnChange(value)
+  }
+
+  return (
+    <label className="flex items-center gap-2 cursor-pointer">
+      <div
+        onClick={handleChange}
+        className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${
+          isChecked ? 'border-blue-600 bg-blue-600' : 'border-gray-300 bg-white'
+        }`}
+      >
+        {isChecked && <div className="w-2 h-2 rounded-full bg-white" />}
+      </div>
+      {children}
+    </label>
   )
 }

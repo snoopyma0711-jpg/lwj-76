@@ -13,6 +13,24 @@ export type StockChangeType = 'in' | 'out' | 'adjust'
 export type InventoryCheckStatus = 'pending' | 'checking' | 'pending_confirm' | 'completed' | 'cancelled'
 export type InventoryCheckScope = 'full' | 'category' | 'partial'
 export type DiscrepancyHandleStatus = 'pending' | 'handled'
+export type ReviewStatus = 'pending_review' | 'review_passed' | 'review_rejected'
+
+export interface ReviewInfo {
+  reviewer: string
+  reviewTime: string
+  reviewConclusion: 'passed' | 'rejected'
+  reviewRemark: string
+  rejectReason?: string
+}
+
+export interface ReviewLog {
+  id: string
+  reviewer: string
+  reviewTime: string
+  reviewConclusion: 'passed' | 'rejected'
+  reviewRemark: string
+  rejectReason?: string
+}
 
 export interface InventoryCheckItem {
   productId: string
@@ -64,6 +82,10 @@ export interface InventoryCheck {
   createdBy: string
   operator?: string
   remark?: string
+  reviewStatus?: ReviewStatus
+  reviewInfo?: ReviewInfo
+  reviewLogs: ReviewLog[]
+  submittedForReviewTime?: string
 }
 
 export type PurchaseStatus =

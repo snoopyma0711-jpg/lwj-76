@@ -335,6 +335,15 @@ interface AppContextValue {
     check: InventoryCheck
     reason: string
   }) => Promise<{ success: boolean; message: string; data?: InventoryCheck }>
+  submitForReview: (check: InventoryCheck) => Promise<{ success: boolean; message: string; data?: InventoryCheck }>
+  reviewInventoryCheck: (params: {
+    check: InventoryCheck
+    reviewConclusion: 'passed' | 'rejected'
+    reviewRemark: string
+    rejectReason?: string
+  }) => Promise<{ success: boolean; message: string; data?: InventoryCheck }>
+  getInventoryCheckExportData: (check: InventoryCheck) => Promise<{ success: boolean; message: string; data?: any }>
+  exportInventoryCheck: (check: InventoryCheck) => void
 }
 
 const AppContext = createContext<AppContextValue | undefined>(undefined)
@@ -1177,6 +1186,140 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return { success: false, message: res.message }
   }
 
+  const submitForReview: AppContextValue['submitForReview'] = async (check) => {
+    const res = await api.submitForReview(check.id)
+    if (res.success && res.data) {
+      dispatch({ type: 'UPDATE_INVENTORY_CHECK', payload: res.data })
+      return { success: true, message: res.message, data: res.data }
+    }
+    return { success: false, message: res.message }
+  }
+
+  const reviewInventoryCheck: AppContextValue['reviewInventoryCheck'] = async ({ check, reviewConclusion, reviewRemark, rejectReason }) => {
+    const res = await api.reviewInventoryCheck(check.id, { reviewConclusion, reviewRemark, rejectReason })
+    if (res.success && res.data) {
+      dispatch({ type: 'UPDATE_INVENTORY_CHECK', payload: res.data })
+      await refreshInventoryCheckStocks()
+      return { success: true, message: res.message, data: res.data }
+    }
+    return { success: false, message: res.message }
+  }
+
+  const getInventoryCheckExportData: AppContextValue['getInventoryCheckExportData'] = async (check) => {
+    const res = await api.getInventoryCheckExportData(check.id)
+    return res
+  }
+
+  const exportInventoryCheck: AppContextValue['exportInventoryCheck'] = (check) => {
+    void (async () => {
+      const res = await getInventoryCheckExportData(check)
+      if (!res.success || !res.data) {
+        return
+      }
+      const data = res.data
+
+      const esc = (v: any) => {
+        if (v === null || v === undefined) return ''
+        const s = String(v)
+        if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+          return '"' + s.replace(/"/g, '""') + '"'
+        }
+        return s
+      }
+
+      const lines: string[] = []
+
+      lines.push('=== 门店盘点报告 ===')
+      lines.push('')
+      lines.push('【基本信息】')
+      lines.push(`盘点编号,${esc(data.basicInfo.checkNo)}`)
+      lines.push(`门店,${esc(data.basicInfo.storeName)}`)
+      lines.push(`盘点范围,${esc(data.basicInfo.scope === 'full' ? '全店盘点' : data.basicInfo.scope === 'category' ? '分类盘点' : '部分盘点')}`)
+      if (data.basicInfo.scopeCategory) {
+        lines.push(`盘点分类,${esc(data.basicInfo.scopeCategory)}`)
+      }
+      lines.push(`计划时间,${esc(data.basicInfo.scheduledTime)}`)
+      lines.push(`开始时间,${esc(data.basicInfo.startedTime || '-')}`)
+      lines.push(`完成时间,${esc(data.basicInfo.completedTime || '-')}`)
+      lines.push(`创建时间,${esc(data.basicInfo.createdAt)}`)
+      lines.push(`创建人,${esc(data.basicInfo.createdBy)}`)
+      lines.push(`盘点状态,${esc(data.basicInfo.status === 'pending' ? '待开始' : data.basicInfo.status === 'checking' ? '盘点中' : data.basicInfo.status === 'pending_confirm' ? '待确认' : data.basicInfo.status === 'completed' ? '已完成' : '已取消')}`)
+      if (data.basicInfo.reviewStatus) {
+        lines.push(`复核状态,${esc(data.basicInfo.reviewStatus === 'pending_review' ? '待复核' : data.basicInfo.reviewStatus === 'review_passed' ? '复核通过' : '复核驳回')}`)
+      }
+      if (data.basicInfo.remark) {
+        lines.push(`备注,${esc(data.basicInfo.remark)}`)
+      }
+      lines.push('')
+
+      lines.push('【盘点汇总】')
+      lines.push(`商品总数,${data.itemSummary.totalItems}`)
+      lines.push(`数量一致,${data.itemSummary.matchedItems}`)
+      lines.push(`差异商品,${data.itemSummary.discrepancyItems}`)
+      lines.push(`已处理差异,${data.itemSummary.handledDiscrepancies}`)
+      lines.push(`待处理差异,${data.itemSummary.pendingDiscrepancies}`)
+      lines.push('')
+
+      lines.push('【商品明细】')
+      lines.push('商品名称,SKU,系统数量,实际数量,单位,差异')
+      for (const it of data.items) {
+        lines.push(`${esc(it.productName)},${esc(it.sku)},${esc(it.systemQuantity)},${esc(it.actualQuantity ?? '-')},${esc(it.unit)},${esc(it.difference ?? '-')}`)
+      }
+      lines.push('')
+
+      if (data.discrepancies.length > 0) {
+        lines.push('【差异明细】')
+        lines.push('商品名称,SKU,系统数量,实际数量,差异,单位,处理状态,处理原因,处理人,处理时间')
+        for (const d of data.discrepancies) {
+          lines.push(`${esc(d.productName)},${esc(d.sku)},${esc(d.systemQuantity)},${esc(d.actualQuantity)},${esc(d.difference)},${esc(d.unit)},${esc(d.handleStatus === 'handled' ? '已处理' : '待处理')},${esc(d.handleReason || '-')},${esc(d.handleOperator || '-')},${esc(d.handleTime || '-')}`)
+        }
+        lines.push('')
+      }
+
+      lines.push('【操作记录】')
+      lines.push('状态,时间,操作人,备注')
+      for (const log of data.statusLogs) {
+        lines.push(`${esc(log.status)},${esc(log.time)},${esc(log.operator)},${esc(log.remark)}`)
+      }
+      lines.push('')
+
+      if (data.reviewInfo) {
+        lines.push('【复核信息】')
+        lines.push(`复核人,${esc(data.reviewInfo.reviewer)}`)
+        lines.push(`复核时间,${esc(data.reviewInfo.reviewTime)}`)
+        lines.push(`复核结论,${esc(data.reviewInfo.reviewConclusion === 'passed' ? '通过' : '驳回')}`)
+        lines.push(`复核备注,${esc(data.reviewInfo.reviewRemark)}`)
+        if (data.reviewInfo.rejectReason) {
+          lines.push(`驳回原因,${esc(data.reviewInfo.rejectReason)}`)
+        }
+        lines.push('')
+      }
+
+      if (data.reviewLogs.length > 0) {
+        lines.push('【复核历史】')
+        lines.push('复核人,复核时间,复核结论,复核备注,驳回原因')
+        for (const log of data.reviewLogs) {
+          lines.push(`${esc(log.reviewer)},${esc(log.reviewTime)},${esc(log.reviewConclusion === 'passed' ? '通过' : '驳回')},${esc(log.reviewRemark)},${esc(log.rejectReason || '-')}`)
+        }
+        lines.push('')
+      }
+
+      lines.push(`导出时间,${esc(data.exportTime)}`)
+      lines.push(`导出人,${esc(data.exportedBy)}`)
+
+      const csvContent = '\uFEFF' + lines.join('\n')
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `盘点报告_${data.basicInfo.checkNo}_${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    })()
+  }
+
   return (
     <AppContext.Provider
       value={{
@@ -1219,6 +1362,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         confirmInventoryCheck,
         handleInventoryCheckDiscrepancy,
         cancelInventoryCheck,
+        submitForReview,
+        reviewInventoryCheck,
+        getInventoryCheckExportData,
+        exportInventoryCheck,
       }}
     >
       {children}

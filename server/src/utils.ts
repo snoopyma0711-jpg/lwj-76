@@ -102,3 +102,9 @@ export function generateCheckNo(checkCount: number): string {
   const seq = String(checkCount + 1).padStart(4, '0')
   return `IC${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${seq}`
 }
+
+export const reviewStatusMap: Record<string, { label: string; color: string; bgColor: string }> = {
+  pending_review: { label: '待复核', color: 'text-amber-700', bgColor: 'bg-amber-50 border-amber-200' },
+  review_passed: { label: '复核通过', color: 'text-green-700', bgColor: 'bg-green-50 border-green-200' },
+  review_rejected: { label: '复核驳回', color: 'text-red-700', bgColor: 'bg-red-50 border-red-200' },
+}
